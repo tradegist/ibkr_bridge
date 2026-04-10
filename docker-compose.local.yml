@@ -1,0 +1,25 @@
+# Local development overrides — no TLS, direct port access.
+# Bind mounts shadow the baked-in COPY so code changes are visible on restart.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+
+services:
+  novnc:
+    platform: linux/amd64
+    ports:
+      - "15100:8080"
+
+  bridge:
+    ports:
+      - "15101:5000"
+    volumes:
+      - ./services/bridge/main.py:/app/main.py:ro
+      - ./services/bridge/bridge_models.py:/app/bridge_models.py:ro
+      - ./services/bridge/client:/app/client:ro
+      - ./services/bridge/bridge_routes:/app/bridge_routes:ro
+
+  caddy:
+    profiles: ["disabled"]
+
+networks:
+  default:
+    name: ibkr-bridge-local

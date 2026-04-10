@@ -1,0 +1,13 @@
+# Shared-mode overrides: disables Caddy (the host project runs it)
+# and connects all services to the shared relay-net network.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.shared.yml up -d
+
+services:
+  caddy:
+    profiles: ["disabled"]
+
+networks:
+  default:
+    name: relay-net
+    external: true

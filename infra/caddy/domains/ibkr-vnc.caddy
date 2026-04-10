@@ -1,0 +1,10 @@
+{$VNC_DOMAIN} {
+    handle /gateway/* {
+        uri strip_prefix /gateway
+        reverse_proxy gateway-controller:9000
+    }
+
+    handle {
+        reverse_proxy novnc:8080
+    }
+}

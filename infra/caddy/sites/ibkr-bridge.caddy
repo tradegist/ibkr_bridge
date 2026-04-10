@@ -1,0 +1,7 @@
+handle /ibkr/order {
+    reverse_proxy bridge:5000
+}
+
+handle /ibkr/trades {
+    reverse_proxy bridge:5000
+}

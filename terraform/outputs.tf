@@ -1,0 +1,20 @@
+output "droplet_ip" {
+  description = "Reserved (static) public IP of the droplet"
+  value       = digitalocean_reserved_ip.bridge.ip_address
+}
+
+output "vnc_url" {
+  description = "noVNC URL for browser-based 2FA access"
+  value       = "https://${var.vnc_domain}"
+}
+
+output "site_url" {
+  description = "Site base URL"
+  value       = "https://${var.site_domain}"
+}
+
+output "ssh_private_key" {
+  description = "SSH private key for accessing the droplet (save to ~/.ssh/ibkr-bridge)"
+  value       = tls_private_key.deploy.private_key_openssh
+  sensitive   = true
+}

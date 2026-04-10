@@ -1,0 +1,52 @@
+[project]
+requires-python = ">=3.11"
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = false
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "cli"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["services/bridge"]
+norecursedirs = ["tests/e2e"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["services/bridge", "cli"]
+
+[tool.ruff.lint]
+select = [
+    "F",      # Pyflakes (unused imports, undefined names, etc.)
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort (import ordering)
+    "UP",     # pyupgrade (modernize syntax for target Python)
+    "B",      # flake8-bugbear (common pitfalls)
+    "SIM",    # flake8-simplify
+    "RUF",    # Ruff-specific rules
+    "PGH003", # Blanket type: ignore without error code
+    "S101",   # No assert in production code (stripped by python -O)
+]
+ignore = [
+    "E501",   # line length — handled by formatter, not linter
+    "UP042",  # str+Enum → StrEnum — keep explicit inheritance for Pydantic model clarity
+]
+
+[tool.ruff.lint.per-file-ignores]
+"cli/*.py" = ["E402", "F401", "RUF005"]
+"cli/core/*.py" = ["E402", "RUF005"]
+"**/test_*.py" = ["S101"]
+"**/conftest.py" = ["S101"]
+"**/tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "client", "bridge_routes", "bridge_models",
+]

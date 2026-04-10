@@ -1,0 +1,91 @@
+name: ibkr-bridge
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: on-failure
+    environment:
+      TWS_USERID: ${TWS_USERID:?Set TWS_USERID in .env}
+      TWS_PASSWORD: ${TWS_PASSWORD:?Set TWS_PASSWORD in .env}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:?Set VNC_SERVER_PASSWORD in .env}
+      TWOFA_TIMEOUT_ACTION: exit
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "no"
+      EXISTING_SESSION_DETECTED_ACTION: primary
+      READ_ONLY_API: "no"
+      JAVA_HEAP_SIZE: ${JAVA_HEAP_SIZE:-}
+      TZ: ${TIME_ZONE:-America/New_York}
+    expose:
+      - "4003"
+      - "4004"
+      - "5900"
+
+  novnc:
+    image: theasp/novnc:latest
+    restart: always
+    depends_on:
+      - ib-gateway
+    environment:
+      DISPLAY_WIDTH: 1024
+      DISPLAY_HEIGHT: 768
+      RUN_XTERM: "no"
+    expose:
+      - "8080"
+    volumes:
+      - ./infra/novnc/index.html:/usr/share/novnc/index.html:ro
+    entrypoint:
+      ["websockify", "--web", "/usr/share/novnc", "8080", "ib-gateway:5900"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - novnc
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VNC_DOMAIN: ${VNC_DOMAIN:?Set VNC_DOMAIN in .env}
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/sites/:/etc/caddy/sites/:ro
+      - ./infra/caddy/domains/:/etc/caddy/domains/:ro
+      - /opt/caddy-shared/sites/:/etc/caddy/shared-sites/:ro
+      - /opt/caddy-shared/domains/:/etc/caddy/shared-domains/:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  bridge:
+    build:
+      context: .
+      dockerfile: services/bridge/Dockerfile
+    restart: always
+    depends_on:
+      - ib-gateway
+    environment:
+      IB_HOST: ib-gateway
+      IB_LIVE_PORT: "4003"
+      IB_PAPER_PORT: "4004"
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+    expose:
+      - "5000"
+
+  gateway-controller:
+    build: ./infra/gateway-controller
+    restart: always
+    environment:
+      COMPOSE_PROJECT_NAME: ibkr-bridge
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose:
+      - "9000"
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  default:
+    name: relay-net
