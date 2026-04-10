@@ -1,0 +1,9 @@
+# Exclude everything, then allow only what the Dockerfile needs.
+
+*
+
+!services/bridge/**
+services/bridge/tests/
+services/bridge/Dockerfile
+services/bridge/**/test_*.py
+services/bridge/**/__pycache__/
