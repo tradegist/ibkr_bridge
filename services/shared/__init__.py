@@ -9,8 +9,9 @@
 # export under the "IbkrBridgeHttp" namespace.
 #
 # When adding shared types here:
-# 1. Add SCHEMA_MODELS list at the bottom (same pattern as bridge_models.py).
-# 2. Update schema_gen.py to include "shared" in its SCHEMA_MODELS dict.
-# 3. Create types/typescript/shared/ with index.d.ts + generated types.d.ts.
+# 1. Define the models in this module.
+# 2. Register them under the "shared" entry in schema_gen.py's SCHEMA_MODELS dict.
+# 3. Create or update types/typescript/shared/ with index.d.ts + generated types.d.ts.
+# 4. Update types/typescript/index.d.ts to export IbkrBridge from "./shared".
 # 4. Update types/typescript/index.d.ts barrel to export IbkrBridge from "./shared".
 # 5. Run `make types` to regenerate.
