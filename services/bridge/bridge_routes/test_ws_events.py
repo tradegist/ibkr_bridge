@@ -110,12 +110,12 @@ class TestWsEventsMaxSubscribers(AioHTTPTestCase):
             headers={"Authorization": "Bearer test-token"},
         ):
             # Second connection should be closed with 4029
-            ws2 = await self.client.ws_connect(
+            async with self.client.ws_connect(
                 "/ibkr/ws/events",
                 headers={"Authorization": "Bearer test-token"},
-            )
-            await ws2.receive()
-            self.assertTrue(ws2.closed)
+            ) as ws2:
+                await ws2.receive()
+                self.assertTrue(ws2.closed)
 
 
 if __name__ == "__main__":
