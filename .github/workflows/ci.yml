@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r services/poller/requirements.txt
+
+      - name: Run linter
+        run: make lint PYTHON=python3
+
+      - name: Run type checking
+        run: make typecheck PYTHON=python3
+
+      - name: Run unit tests
+        run: make test PYTHON=python3
