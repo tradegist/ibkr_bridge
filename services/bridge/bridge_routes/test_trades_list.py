@@ -8,6 +8,7 @@ from aiohttp.test_utils import AioHTTPTestCase
 
 from bridge_models import ListTradesResponse
 from bridge_routes import create_routes
+from client.event_hub import EventHub
 
 # Set API_TOKEN in env so auth middleware passes with "test-token".
 _patcher = patch.dict(os.environ, {"API_TOKEN": "test-token"})
@@ -33,7 +34,7 @@ def _make_client(connected: bool = True) -> MagicMock:
 
 class TestTradesNotConnected(AioHTTPTestCase):
     async def get_application(self) -> web.Application:
-        return create_routes(_make_client(connected=False))
+        return create_routes(_make_client(connected=False), EventHub(buffer_size=10, max_subscribers=2))
 
     async def test_not_connected_returns_503(self) -> None:
         resp = await self.client.get(
@@ -47,7 +48,7 @@ class TestTradesNotConnected(AioHTTPTestCase):
 
 class TestTradesConnected(AioHTTPTestCase):
     async def get_application(self) -> web.Application:
-        return create_routes(_make_client(connected=True))
+        return create_routes(_make_client(connected=True), EventHub(buffer_size=10, max_subscribers=2))
 
     async def test_returns_empty_trades(self) -> None:
         resp = await self.client.get(

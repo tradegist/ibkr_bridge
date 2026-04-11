@@ -2,9 +2,9 @@
 
 Usage: python schema_gen.py <module>
 
-Reads the SCHEMA_MODELS list from the given module and writes a
-combined JSON Schema to stdout.  The .pth file in the venv ensures
-both poller_models and bridge_models are importable.
+Reads the SCHEMA_MODELS dict below and writes a combined JSON Schema
+to stdout.  The .pth file in the venv ensures modules like
+bridge_models are importable.
 """
 
 import importlib
@@ -113,10 +113,40 @@ def _replace_inline_enums(obj: object, aliases: dict[frozenset[str], str]) -> No
             _replace_inline_enums(item, aliases)
 
 
+# Models exported to the JSON Schema / TypeScript types.
+# Only top-level response/request wrappers need to be listed here;
+# nested models are pulled in automatically via $ref.
+SCHEMA_MODELS: dict[str, list[str]] = {
+    "bridge_models": [
+        "PlaceOrderPayload",
+        "PlaceOrderResponse",
+        "HealthResponse",
+        "ListTradesResponse",
+        "WsEnvelope",
+    ],
+}
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <module>", file=sys.stderr)
         sys.exit(1)
 
-    mod = importlib.import_module(sys.argv[1])
-    generate_schema(mod, mod.SCHEMA_MODELS)
+    mod_name = sys.argv[1]
+    mod = importlib.import_module(mod_name)
+    model_names = SCHEMA_MODELS.get(mod_name)
+    if model_names is None:
+        print(f"ERROR: no SCHEMA_MODELS entry for {mod_name!r}", file=sys.stderr)
+        sys.exit(1)
+
+    models: list[type[BaseModel]] = []
+    for name in model_names:
+        try:
+            model = getattr(mod, name)
+        except AttributeError as exc:
+            raise SystemExit(
+                f"ERROR: model {name!r} not found in module {mod_name!r}. "
+                "Update SCHEMA_MODELS in schema_gen.py or restore the renamed export."
+            ) from exc
+        models.append(model)
+    generate_schema(mod, models)

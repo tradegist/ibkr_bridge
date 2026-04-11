@@ -1,0 +1,16 @@
+[project]
+name = "ibkr-bridge-types"
+version = "0.1.0"
+description = "Typed Pydantic models for ibkr-bridge WebSocket events and HTTP API."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.0,<3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ibkr_bridge_types"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"ibkr_bridge_types/py.typed" = "ibkr_bridge_types/py.typed"

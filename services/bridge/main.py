@@ -11,6 +11,7 @@ from aiohttp import web
 
 from bridge_routes import create_routes
 from client import IBClient, get_trading_mode
+from client.event_hub import EventHub
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,12 +34,13 @@ def get_api_port() -> int:
 async def amain() -> None:
     api_port = get_api_port()
 
-    client = IBClient()
+    hub = EventHub()
+    client = IBClient(hub)
 
     log.info("IBKR Bridge starting (mode=%s)", get_trading_mode())
 
     # Start HTTP server first so /health is reachable while connecting
-    app = create_routes(client)
+    app = create_routes(client, hub)
     runner = web.AppRunner(app)
     await runner.setup()
 
@@ -49,6 +51,7 @@ async def amain() -> None:
     await client.connect()
 
     client.ib.disconnectedEvent += client.on_disconnect
+    client.subscribe_events()
 
     await client.watchdog()
 
