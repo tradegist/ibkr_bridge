@@ -262,6 +262,7 @@ All configuration is via environment variables in `.env`:
 | `JAVA_HEAP_SIZE`      | No       | `768`                | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                    |
 | `DROPLET_SIZE`        | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
 | `TIME_ZONE`           | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
+| `VNC_BASIC_AUTH_USER` | No       | `admin`              | Username for VNC domain basic auth                                                                    |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -495,6 +496,7 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │       │   └── trades.py          # TradesNamespace (list trades + fills)
 │       ├── bridge_routes/         # HTTP API
 │       │   ├── __init__.py        # Route orchestrator (create_routes)
+│       │   ├── constants.py       # Shared constants (AUTH_PREFIX, client_key)
 │       │   ├── health.py          # GET /health handler
 │       │   ├── middlewares.py     # Auth middleware (Bearer token, HMAC-safe)
 │       │   ├── order_place.py     # POST /ibkr/order handler

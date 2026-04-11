@@ -248,6 +248,7 @@ services/bridge/
     test_trades.py         # Tests for trades
   bridge_routes/           # HTTP API
     __init__.py            # Route orchestrator (create_routes)
+    constants.py           # Shared constants (AUTH_PREFIX, client_key)
     health.py              # GET /health handler
     middlewares.py         # Auth middleware (Bearer token, HMAC-safe)
     order_place.py         # POST /ibkr/order handler
@@ -292,7 +293,7 @@ The `infra/gateway-controller/` container provides HTTP endpoints to start/check
 
 - **`POST /cgi-bin/start-gateway`** — starts the `ib-gateway` container via Docker socket.
 - **`GET /cgi-bin/gateway-status`** — returns the `ib-gateway` container state.
-- These are served via busybox httpd as CGI scripts. The container mounts the Docker socket (`/var/run/docker.sock`).
+- These are served via busybox httpd as CGI scripts. The container mounts the Docker socket (`/var/run/docker.sock`). Caddy rewrites `/gateway/*` to `/cgi-bin/*` before proxying.
 - Exposed at `https://{VNC_DOMAIN}/gateway/*` via Caddy reverse proxy.
 - **The entire VNC domain is protected by HTTP Basic Auth.** Caddy's `basic_auth` directive uses a bcrypt hash of `VNC_SERVER_PASSWORD`, generated at container startup by `infra/caddy/docker-entrypoint.sh`. The username defaults to `admin` and can be overridden via `VNC_BASIC_AUTH_USER` env var.
 
@@ -380,6 +381,7 @@ services/
     bridge_models.py      # Pydantic models (all types + SCHEMA_MODELS)
     client/               # IB Gateway client (connection, orders, trades)
     bridge_routes/        # HTTP API (routes, middleware, handlers)
+    constants.py        # Shared constants (AUTH_PREFIX, client_key)
     tests/e2e/            # E2E tests (require Docker stack)
     Dockerfile
     requirements.txt
