@@ -142,8 +142,6 @@ class ListTradesResponse(BaseModel):
 # Models mirror ib_async 2.1.0 dataclass fields exactly (same names,
 # same nesting).  When bumping ib_async, update these models to match.
 
-WsStatusType = Literal["connected", "disconnected"]
-
 WsEventType = Literal[
     "execDetailsEvent",
     "commissionReportEvent",

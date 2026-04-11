@@ -52,9 +52,11 @@ test: ## Run unit tests
 
 typecheck: ## Run mypy strict type checking
 	MYPYPATH=services/bridge $(PYTHON) -m mypy services/bridge/
+	$(PYTHON) -m mypy services/shared/
+	$(PYTHON) -m mypy types/python/ibkr_bridge_types/
 
 lint: ## Run ruff linter (use FIX=1 to auto-fix)
-	$(PYTHON) -m ruff check services/bridge/ cli/ schema_gen.py gen_python_types.py $(if $(FIX),--fix)
+	$(PYTHON) -m ruff check services/bridge/ services/shared/ cli/ schema_gen.py gen_python_types.py types/python/ibkr_bridge_types/ $(if $(FIX),--fix)
 	@if grep -rn '__all__' services/ types/ cli/ --include='*.py'; then echo "ERROR: __all__ is banned — use explicit re-exports"; exit 1; fi
 
 e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)

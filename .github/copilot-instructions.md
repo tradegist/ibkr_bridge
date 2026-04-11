@@ -9,7 +9,7 @@
 - **Makefile must mirror CLI arguments.** When adding a new parameter to a `cli/` command, always add the corresponding `$(if $(VAR),--flag $(VAR))` to the Makefile target so `make <target> VAR=value` works. **CLI parameters that are optional in the Makefile must be named flags (`--currency`, `--exchange`), never positional args.** When the Makefile uses `$(if $(VAR),...)`, omitting `VAR` omits the entire argument — if the CLI parameter is positional, downstream args shift into the wrong position and get silently misparsed.
 - **Update README.md when changing public interfaces.** When adding or modifying CLI commands, Makefile targets, API endpoints, or env vars, always update the README to reflect the change.
 - **Run `make lint` after every code change.** Ruff enforces unused imports (F401), import ordering (I001), unused variables, common pitfalls (bugbear), and modern Python idioms. If ruff fails, fix before committing. Use `make lint FIX=1` to auto-fix safe issues (import sorting, etc.).
-- **Register new modules in `pyproject.toml`.** When adding a new Python package or standalone module under `services/`, immediately add it to `pyproject.toml`: (1) `tool.pytest.ini_options.testpaths`, (2) `tool.ruff.src`, (3) `tool.ruff.lint.isort.known-first-party`, and (4) the mypy invocation in the Makefile. Missing any of these causes silent miscategorisation (isort), missed tests (pytest), or unchecked code (mypy).
+- **Register new modules in `pyproject.toml`.** When adding a new Python package or standalone module under `services/` or `types/python/`, immediately add it to `pyproject.toml`: (1) `tool.pytest.ini_options.testpaths` (if it has tests), (2) `tool.ruff.src`, (3) `tool.ruff.lint.isort.known-first-party`, and (4) the mypy invocation in the Makefile. Also add it to the ruff and mypy paths in the Makefile `lint:` and `typecheck:` targets. Missing any of these causes silent miscategorisation (isort), missed tests (pytest), or unchecked code (mypy).
 - **Centralise env var reads into typed getter functions.** Each env var must be read in exactly one place — a getter function in the module that owns it (e.g. `get_ib_host()` in `client/__init__.py`). The getter applies `.strip()` and any type conversion (`int()`, boolean parsing). All other code imports and calls the getter. Never call `os.environ.get()` inline except inside a getter.
 - **Getters must validate and fail fast.** Every getter that reads an env var must validate the value and raise `SystemExit` with a descriptive message on invalid input. For required string vars, check emptiness. For `int()` conversions, wrap in `try/except ValueError: raise SystemExit(...)`. Callers should never need to validate a getter's return value.
 - **Prefer pure functions over side-effect functions.** Compute and return values — let the caller decide how to use them. If a side-effect function is truly unavoidable, add an inline comment at every call site explaining **what** is mutated and **why**.
@@ -44,6 +44,7 @@
 - **Avoid `dict[str, Any]` round-trips.** Never use `model_dump()` → `dict` → `Model(**data)` — mypy cannot type-check `**dict[str, Any]`. Use explicit keyword arguments or `model_copy(update=...)` instead.
 - **Prefer strict `Literal` types over bare `str` on Pydantic models.** Financial applications demand precision. When a field has a known set of valid values (e.g. `Action`, `OrderType`, `SecType`, `TimeInForce`, `ExecSide`), always use the existing `Literal` type alias. Only fall back to `str` when the external source (e.g. IB Gateway) genuinely returns unbounded values — and document why with an inline comment (see `TradeDetail.action` and `TradeDetail.orderType` for examples).
 - **No `# type: ignore` without justification.** Fix the root cause instead. If suppression is truly unavoidable (e.g. untyped `ib_async` attributes), the comment must include a reason: `# type: ignore[attr-defined] # ib_async.Foo has no stubs`. A bare `# type: ignore` with no explanation is never acceptable.
+- **Use `cast()` instead of `# type: ignore[arg-type]`.** When passing a mock or compatible object where mypy expects a concrete type (e.g. `IBClient`), use `cast(IBClient, mock)` — not `# type: ignore[arg-type]`. This applies everywhere: test code, adapters, and third-party library wrappers. `cast()` is a documented assertion that preserves type-checking downstream; `# type: ignore` silently disables it.
 - **Use `cast()` for ib_async values.** The `ib_async` library has no type stubs. When mapping ib_async values to typed models, use `cast(ExecSide, ex.side)` to assert the correct type. This keeps mypy happy without `# type: ignore`.
 - **Use `@overload` for sentinel-default patterns.** When a function accepts an optional default via a sentinel (e.g. `_UNSET = object()`), use `@overload` to express the two call signatures instead of `# type: ignore` on the return.
 
@@ -321,9 +322,10 @@ This project has **two model locations** — a shared source of truth (currently
 | `WsComboLeg`             | Outbound  | Mirrors `ib_async.ComboLeg` (ib_async 2.1.0)             |
 | `WsDeltaNeutralContract` | Outbound  | Mirrors `ib_async.DeltaNeutralContract` (ib_async 2.1.0) |
 
-Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEventType`, `WsStatusType` — all `Literal` types used across models.
+Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEventType` — all `Literal` types used across models.
 
 - `TradeDetail.action` and `TradeDetail.orderType` are `str` (not `Action`/`OrderType`) because IB Gateway returns values beyond our constrained Literals for existing orders (e.g. `STP`, `TRAIL`).
+- `WsEnvelope.type` uses `WsEventType` as the exported WebSocket event discriminator. Do not document or rely on a separate public `WsStatusType` alias unless it is also emitted by the schema/type generation pipeline.
 - **WS event models mirror `ib_async` 2.1.0 exactly** — same field names, same nesting (`WsFill.contract`, `WsFill.execution`, `WsFill.commissionReport`). When bumping ib_async, update these models to match.
 
 ## Gateway Controller
@@ -401,6 +403,7 @@ export { IbkrBridge, IbkrBridgeHttp };
   ```
 - **Usage:** `from ibkr_bridge_types import PlaceOrderPayload, WsEnvelope, Action`
 - **Auto-generated** — `models.py` is extracted from `bridge_models.py` by `gen_python_types.py`. Run `make types` to regenerate. Do not edit `models.py` manually.
+- **Covered by `make lint` and `make typecheck`** — `types/python/ibkr_bridge_types/` is included in both targets. Generated code must pass ruff and mypy like any other Python module.
 - When bumping `ib_async`, update `bridge_models.py` and run `make types` to regenerate both TS and Python types.
 
 ## Code Style

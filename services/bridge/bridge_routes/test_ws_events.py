@@ -2,12 +2,14 @@
 
 import os
 import unittest
-from unittest.mock import patch
+from typing import cast
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 
 from bridge_routes import create_routes
+from client import IBClient
 from client.event_hub import EventHub
 
 _patcher = patch.dict(os.environ, {
@@ -24,12 +26,11 @@ def tearDownModule() -> None:
     _patcher.stop()
 
 
-def _make_client() -> object:
-    from unittest.mock import MagicMock, PropertyMock
-
-    client = MagicMock()
+def _make_client() -> IBClient:
+    """MagicMock standing in for IBClient — only is_connected is needed."""
+    client = MagicMock(spec=IBClient)
     type(client).is_connected = PropertyMock(return_value=True)
-    return client
+    return cast(IBClient, client)
 
 
 class TestWsEventsConnect(AioHTTPTestCase):
@@ -37,7 +38,7 @@ class TestWsEventsConnect(AioHTTPTestCase):
 
     async def get_application(self) -> web.Application:
         self.hub = EventHub(buffer_size=100, max_subscribers=5)
-        app = create_routes(_make_client(), self.hub)  # type: ignore[arg-type]
+        app = create_routes(_make_client(), self.hub)
         return app
 
     async def test_connect_and_receive(self) -> None:
@@ -83,7 +84,7 @@ class TestWsEventsAuth(AioHTTPTestCase):
 
     async def get_application(self) -> web.Application:
         hub = EventHub(buffer_size=10, max_subscribers=5)
-        return create_routes(_make_client(), hub)  # type: ignore[arg-type]
+        return create_routes(_make_client(), hub)
 
     async def test_no_auth_returns_401(self) -> None:
         resp = await self.client.request("GET", "/ibkr/ws/events")
@@ -102,20 +103,22 @@ class TestWsEventsMaxSubscribers(AioHTTPTestCase):
 
     async def get_application(self) -> web.Application:
         self.hub = EventHub(buffer_size=10, max_subscribers=1)
-        return create_routes(_make_client(), self.hub)  # type: ignore[arg-type]
+        return create_routes(_make_client(), self.hub)
 
     async def test_max_subscribers_rejects(self) -> None:
-        async with self.client.ws_connect(
-            "/ibkr/ws/events",
-            headers={"Authorization": "Bearer test-token"},
-        ):
-            # Second connection should be closed with 4029
-            async with self.client.ws_connect(
+        async with (
+            self.client.ws_connect(
                 "/ibkr/ws/events",
                 headers={"Authorization": "Bearer test-token"},
-            ) as ws2:
-                await ws2.receive()
-                self.assertTrue(ws2.closed)
+            ),
+            self.client.ws_connect(
+                "/ibkr/ws/events",
+                headers={"Authorization": "Bearer test-token"},
+            ) as ws2,
+        ):
+            # Second connection should be closed with 4029
+            await ws2.receive()
+            self.assertTrue(ws2.closed)
 
 
 if __name__ == "__main__":

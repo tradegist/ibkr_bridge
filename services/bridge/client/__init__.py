@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 from datetime import UTC, datetime
+from typing import Literal
 
 from ib_async import IB
 from ib_async import Trade as IBTrade
@@ -18,13 +19,15 @@ from bridge_models import (
     WsEventType,
     WsExecution,
     WsFill,
-    WsStatusType,
 )
 from client.event_hub import EventHub
 from client.orders import OrdersNamespace
 from client.trades import TradesNamespace
 
 log = logging.getLogger("ib-client")
+
+# Subset of WsEventType for status-only events (internal to client).
+WsStatusType = Literal["connected", "disconnected"]
 
 CLIENT_ID = 1
 INITIAL_RETRY_DELAY = 10

@@ -11,3 +11,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ibkr_bridge_types"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"ibkr_bridge_types/py.typed" = "ibkr_bridge_types/py.typed"

@@ -2,9 +2,9 @@
 
 Usage: python schema_gen.py <module>
 
-Reads the SCHEMA_MODELS list from the given module and writes a
-combined JSON Schema to stdout.  The .pth file in the venv ensures
-both poller_models and bridge_models are importable.
+Reads the SCHEMA_MODELS dict below and writes a combined JSON Schema
+to stdout.  The .pth file in the venv ensures modules like
+bridge_models are importable.
 """
 
 import importlib

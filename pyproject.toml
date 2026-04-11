@@ -19,7 +19,7 @@ addopts = "--import-mode=importlib"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["services/bridge", "cli"]
+src = ["services/bridge", "services/shared", "cli", "types/python"]
 
 [tool.ruff.lint]
 select = [
@@ -48,5 +48,5 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "client", "bridge_routes", "bridge_models",
+    "client", "bridge_routes", "bridge_models", "ibkr_bridge_types",
 ]

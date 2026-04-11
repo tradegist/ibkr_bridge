@@ -139,6 +139,7 @@ GET /ibkr/ws/events
 Streams real-time trade execution events over WebSocket. Requires `Authorization: Bearer <API_TOKEN>` (sent as HTTP header during the upgrade handshake).
 
 Query parameters:
+
 - `last_seq` — replay buffered events with `seq >` this value (default: `0`)
 
 Events are JSON envelopes with a monotonic `seq` number. Fields mirror `ib_async` 2.1.0 exactly:
@@ -185,12 +186,14 @@ Events are JSON envelopes with a monotonic `seq` number. Fields mirror `ib_async
 ```
 
 Event types:
+
 - `execDetailsEvent` — fill executed (preliminary, may lack commission)
 - `commissionReportEvent` — fill with commission data (confirmed)
 - `connected` — bridge connected to IB Gateway
 - `disconnected` — bridge lost IB Gateway connection
 
 Features:
+
 - **Replay on reconnect** — pass `?last_seq=N` to receive buffered events since that sequence number
 - **Ring buffer** — last 500 events buffered server-side (configurable via `WS_BUFFER_SIZE`)
 - **Up to 10 simultaneous subscribers** (configurable via `WS_MAX_SUBSCRIBERS`)
@@ -312,26 +315,26 @@ make sync ENV=local          # restart all containers
 
 All configuration is via environment variables in `.env`:
 
-| Variable              | Required | Default              | Description                                                                                           |
-| --------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DEPLOY_MODE`         | Yes      | —                    | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                     |
-| `DO_API_TOKEN`        | Yes\*    | —                    | DigitalOcean API token (standalone mode only — can be removed after first deploy)                     |
-| `DROPLET_IP`          | Yes\*    | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                          |
-| `SSH_KEY`             | No       | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
-| `TWS_USERID`          | Yes      | —                    | IBKR username                                                                                         |
-| `TWS_PASSWORD`        | Yes      | —                    | IBKR password                                                                                         |
-| `VNC_SERVER_PASSWORD` | Yes      | —                    | Password for VNC access to the Gateway GUI                                                            |
-| `TRADING_MODE`        | No       | `paper`              | `paper` or `live`                                                                                     |
-| `VNC_DOMAIN`          | Yes      | —                    | Domain for VNC access (e.g. `vnc.example.com`)                                                        |
-| `SITE_DOMAIN`         | Yes      | —                    | Domain for the REST API (e.g. `trade.example.com`)                                                    |
-| `API_TOKEN`           | Yes      | —                    | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                         |
-| `JAVA_HEAP_SIZE`      | No       | `768`                | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                    |
-| `DROPLET_SIZE`        | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
-| `TIME_ZONE`           | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
-| `VNC_BASIC_AUTH_USER` | No       | `admin`              | Username for VNC domain basic auth                                                                    |
-| `WS_BUFFER_SIZE`      | No       | `500`                | Ring buffer size for WebSocket event replay on client reconnect                                       |
-| `WS_MAX_SUBSCRIBERS`  | No       | `10`                 | Maximum simultaneous WebSocket subscribers                                                            |
-| `WS_HEARTBEAT_INTERVAL` | No    | `30`                 | WebSocket ping interval in seconds for zombie connection detection                                    |
+| Variable                | Required | Default              | Description                                                                                           |
+| ----------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DEPLOY_MODE`           | Yes      | —                    | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                     |
+| `DO_API_TOKEN`          | Yes\*    | —                    | DigitalOcean API token (standalone mode only — can be removed after first deploy)                     |
+| `DROPLET_IP`            | Yes\*    | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                          |
+| `SSH_KEY`               | No       | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
+| `TWS_USERID`            | Yes      | —                    | IBKR username                                                                                         |
+| `TWS_PASSWORD`          | Yes      | —                    | IBKR password                                                                                         |
+| `VNC_SERVER_PASSWORD`   | Yes      | —                    | Password for VNC access to the Gateway GUI                                                            |
+| `TRADING_MODE`          | No       | `paper`              | `paper` or `live`                                                                                     |
+| `VNC_DOMAIN`            | Yes      | —                    | Domain for VNC access (e.g. `vnc.example.com`)                                                        |
+| `SITE_DOMAIN`           | Yes      | —                    | Domain for the REST API (e.g. `trade.example.com`)                                                    |
+| `API_TOKEN`             | Yes      | —                    | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                         |
+| `JAVA_HEAP_SIZE`        | No       | `768`                | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                    |
+| `DROPLET_SIZE`          | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
+| `TIME_ZONE`             | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
+| `VNC_BASIC_AUTH_USER`   | No       | `admin`              | Username for VNC domain basic auth                                                                    |
+| `WS_BUFFER_SIZE`        | No       | `500`                | Ring buffer size for WebSocket event replay on client reconnect                                       |
+| `WS_MAX_SUBSCRIBERS`    | No       | `10`                 | Maximum simultaneous WebSocket subscribers                                                            |
+| `WS_HEARTBEAT_INTERVAL` | No       | `30`                 | WebSocket ping interval in seconds for zombie connection detection                                    |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -520,7 +523,7 @@ types/typescript/
 Usage:
 
 ```typescript
-import { IbkrBridgeHttp } from "@tradegist/ibkr-bridge-types";
+import type { IbkrBridgeHttp } from "@tradegist/ibkr-bridge-types";
 
 const req: IbkrBridgeHttp.PlaceOrderPayload = {
   contract: { symbol: "AAPL", secType: "STK", exchange: "SMART", currency: "USD" },
