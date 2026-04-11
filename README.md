@@ -133,8 +133,8 @@ Returns `{"connected": true, "tradingMode": "paper"}`. No auth required.
 #### Gateway control (VNC domain)
 
 ```
-POST /gateway/start-gateway    # Start the ib-gateway container
-GET  /gateway/gateway-status   # Check ib-gateway container state
+POST /gateway/cgi-bin/start-gateway    # Start the ib-gateway container
+GET  /gateway/cgi-bin/gateway-status   # Check ib-gateway container state
 ```
 
 These endpoints are served on the **VNC domain** (not `SITE_DOMAIN`), accessible via the gateway-controller container. The entire VNC domain is protected by HTTP Basic Auth (username defaults to `admin`, password is `VNC_SERVER_PASSWORD`). Override the username with `VNC_BASIC_AUTH_USER` in `.env`.

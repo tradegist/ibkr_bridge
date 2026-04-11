@@ -30,9 +30,9 @@ def main() -> None:
                    help="Order type")
     p.add_argument("limit_price", nargs="?", type=float,
                    help="Limit price (required for LMT)")
-    p.add_argument("currency", nargs="?", default="USD",
+    p.add_argument("--currency", default="USD",
                    help="Currency (default: USD)")
-    p.add_argument("exchange", nargs="?", default="SMART",
+    p.add_argument("--exchange", default="SMART",
                    help="Exchange (default: SMART)")
     p.add_argument("--tif", default="DAY",
                    choices=["DAY", "GTC", "IOC", "GTD", "OPG", "FOK", "DTC"],
