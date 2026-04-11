@@ -1,0 +1,110 @@
+"""IB Gateway client — connection management and namespace delegation."""
+
+import asyncio
+import logging
+import os
+
+from ib_async import IB
+
+from client.orders import OrdersNamespace
+from client.trades import TradesNamespace
+
+log = logging.getLogger("ib-client")
+
+CLIENT_ID = 1
+INITIAL_RETRY_DELAY = 10
+MAX_RETRY_DELAY = 300
+
+
+def get_ib_host() -> str:
+    return os.environ.get("IB_HOST", "ib-gateway").strip()
+
+
+def get_trading_mode() -> str:
+    mode = os.environ.get("TRADING_MODE", "paper").strip()
+    if mode not in ("paper", "live"):
+        raise SystemExit(
+            f"Invalid TRADING_MODE={mode!r} — must be 'paper' or 'live'"
+        )
+    return mode
+
+
+def get_ib_port() -> int:
+    mode = get_trading_mode()
+    if mode == "live":
+        var, default = "IB_LIVE_PORT", "4003"
+    else:
+        var, default = "IB_PAPER_PORT", "4004"
+    raw = os.environ.get(var, default).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        raise SystemExit(
+            f"Invalid {var}={raw!r} — must be an integer"
+        ) from None
+
+
+class IBClient:
+    """Thin wrapper around ib_async.IB for connection management."""
+
+    def __init__(self) -> None:
+        self.ib = IB()
+        self._retry_delay = INITIAL_RETRY_DELAY
+        self._connect_lock = asyncio.Lock()
+        self._background_tasks: set[asyncio.Task[None]] = set()
+        self.orders = OrdersNamespace(self.ib)
+        self.trades = TradesNamespace(self.ib)
+
+    @property
+    def is_connected(self) -> bool:
+        return self.ib.isConnected()
+
+    async def connect(self) -> None:
+        """Connect to IB Gateway with exponential backoff retry.
+
+        Serialized via _connect_lock so concurrent callers (watchdog,
+        _reconnect) await the in-flight attempt instead of starting a
+        parallel retry loop.
+        """
+        async with self._connect_lock:
+            if self.is_connected:
+                return
+            ib_host = get_ib_host()
+            ib_port = get_ib_port()
+            while True:
+                try:
+                    log.info("Connecting to IB Gateway at %s:%d ...", ib_host, ib_port)
+                    await self.ib.connectAsync(
+                        ib_host, ib_port, clientId=CLIENT_ID, timeout=20
+                    )
+                    log.info(
+                        "Connected — %d account(s)", len(self.ib.managedAccounts())
+                    )
+                    self._retry_delay = INITIAL_RETRY_DELAY
+                    return
+                except Exception as exc:
+                    log.warning(
+                        "Connection failed: %s — retrying in %ds",
+                        exc, self._retry_delay,
+                    )
+                    await asyncio.sleep(self._retry_delay)
+                    self._retry_delay = min(self._retry_delay * 2, MAX_RETRY_DELAY)
+
+    def on_disconnect(self) -> None:
+        log.warning("Disconnected from IB Gateway — will reconnect")
+        task = asyncio.ensure_future(self._reconnect())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _reconnect(self) -> None:
+        await asyncio.sleep(self._retry_delay)
+        if not self.is_connected:
+            await self.connect()
+
+    async def watchdog(self) -> None:
+        """Periodically check the connection and reconnect if stale."""
+        while True:
+            await asyncio.sleep(30)
+            if not self.is_connected:
+                log.warning("Watchdog: connection lost — reconnecting")
+                await self.connect()

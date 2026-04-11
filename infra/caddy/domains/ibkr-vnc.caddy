@@ -1,0 +1,14 @@
+{$VNC_DOMAIN} {
+    basic_auth {
+        {$VNC_BASIC_AUTH_USER} {$VNC_BASIC_AUTH_HASH}
+    }
+
+    handle /gateway/* {
+        uri strip_prefix /gateway
+        reverse_proxy gateway-controller:9000
+    }
+
+    handle {
+        reverse_proxy novnc:8080
+    }
+}

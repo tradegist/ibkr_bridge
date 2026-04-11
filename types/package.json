@@ -1,0 +1,6 @@
+{
+  "name": "@tradegist/ibkr-bridge-types",
+  "version": "0.1.0",
+  "types": "index.d.ts",
+  "files": ["index.d.ts", "http/"]
+}

@@ -1,0 +1,7 @@
+{$SITE_DOMAIN} {
+    import /etc/caddy/sites/*.caddy
+    import /etc/caddy/shared-sites/*.caddy
+}
+
+import /etc/caddy/domains/*.caddy
+import /etc/caddy/shared-domains/*.caddy
