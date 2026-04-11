@@ -89,6 +89,7 @@ _CONFIG = CoreConfig(
     required_env=[
         "DO_API_TOKEN", "TWS_USERID", "TWS_PASSWORD",
         "VNC_SERVER_PASSWORD", "API_TOKEN",
+        "VNC_DOMAIN", "SITE_DOMAIN",
     ],
     service_map={
         "gateway": "ib-gateway",

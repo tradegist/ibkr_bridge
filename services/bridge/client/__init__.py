@@ -21,13 +21,21 @@ def get_ib_host() -> str:
 
 
 def get_trading_mode() -> str:
-    return os.environ.get("TRADING_MODE", "paper").strip()
+    mode = os.environ.get("TRADING_MODE", "paper").strip()
+    if mode not in ("paper", "live"):
+        raise SystemExit(
+            f"Invalid TRADING_MODE={mode!r} — must be 'paper' or 'live'"
+        )
+    return mode
 
 
 def get_ib_port() -> int:
     mode = get_trading_mode()
-    var = "IB_LIVE_PORT" if mode == "live" else "IB_PAPER_PORT"
-    raw = os.environ.get(var, "4004").strip()
+    if mode == "live":
+        var, default = "IB_LIVE_PORT", "4003"
+    else:
+        var, default = "IB_PAPER_PORT", "4004"
+    raw = os.environ.get(var, default).strip()
     try:
         return int(raw)
     except ValueError:
