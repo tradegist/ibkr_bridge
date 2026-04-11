@@ -51,6 +51,7 @@ async def amain() -> None:
     await client.connect()
 
     client.ib.disconnectedEvent += client.on_disconnect
+    client.subscribe_events()
 
     await client.watchdog()
 

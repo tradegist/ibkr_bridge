@@ -1,11 +1,26 @@
 """IB Gateway client — connection management and namespace delegation."""
 
 import asyncio
+import dataclasses as dc
 import logging
 import os
+from datetime import UTC, datetime
 
 from ib_async import IB
+from ib_async import Trade as IBTrade
+from ib_async.objects import CommissionReport, Fill
 
+from bridge_models import (
+    WsComboLeg,
+    WsCommissionReport,
+    WsContract,
+    WsDeltaNeutralContract,
+    WsEnvelope,
+    WsEventType,
+    WsExecution,
+    WsFill,
+    WsStatusType,
+)
 from client.event_hub import EventHub
 from client.orders import OrdersNamespace
 from client.trades import TradesNamespace
@@ -94,6 +109,7 @@ class IBClient:
 
     def on_disconnect(self) -> None:
         log.warning("Disconnected from IB Gateway — will reconnect")
+        self._broadcast_status("disconnected")
         task = asyncio.ensure_future(self._reconnect())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -110,3 +126,121 @@ class IBClient:
             if not self.is_connected:
                 log.warning("Watchdog: connection lost — reconnecting")
                 await self.connect()
+
+    # ── ib_async event wiring ────────────────────────────────────────
+
+    def subscribe_events(self) -> None:
+        """Register ib_async event callbacks. Call once after connect."""
+        self.ib.execDetailsEvent += self._on_exec_details
+        self.ib.commissionReportEvent += self._on_commission_report
+        self._broadcast_status("connected")
+
+    def _broadcast_status(self, status: WsStatusType) -> None:
+        envelope = WsEnvelope(
+            type=status,
+            seq=0,  # Overwritten by hub.broadcast
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        self.hub.broadcast(envelope.model_dump())
+
+    def _on_exec_details(self, trade: IBTrade, fill: Fill) -> None:
+        self._broadcast_fill("execDetailsEvent", trade, fill)
+
+    def _on_commission_report(
+        self, trade: IBTrade, fill: Fill, report: CommissionReport
+    ) -> None:
+        self._broadcast_fill(
+            "commissionReportEvent", trade, fill, report=report,
+        )
+
+    def _broadcast_fill(
+        self,
+        event_type: WsEventType,
+        trade: IBTrade,
+        fill: Fill,
+        *,
+        report: CommissionReport | None = None,
+    ) -> None:
+        ex = fill.execution
+        contract = fill.contract
+        cr = report if report else fill.commissionReport
+
+        ws_contract = WsContract(
+            secType=contract.secType,
+            conId=contract.conId,
+            symbol=contract.symbol,
+            lastTradeDateOrContractMonth=contract.lastTradeDateOrContractMonth,
+            strike=contract.strike,
+            right=contract.right,
+            multiplier=contract.multiplier,
+            exchange=contract.exchange,
+            primaryExchange=contract.primaryExchange,
+            currency=contract.currency,
+            localSymbol=contract.localSymbol,
+            tradingClass=contract.tradingClass,
+            includeExpired=contract.includeExpired,
+            secIdType=contract.secIdType,
+            secId=contract.secId,
+            description=contract.description,
+            issuerId=contract.issuerId,
+            comboLegsDescrip=contract.comboLegsDescrip,
+            comboLegs=[
+                WsComboLeg(**dc.asdict(leg)) for leg in contract.comboLegs
+            ],
+            deltaNeutralContract=(
+                WsDeltaNeutralContract(**dc.asdict(contract.deltaNeutralContract))
+                if contract.deltaNeutralContract
+                else None
+            ),
+        )
+
+        ws_execution = WsExecution(
+            execId=ex.execId,
+            time=ex.time.isoformat() if ex.time else "",
+            acctNumber=ex.acctNumber,
+            exchange=ex.exchange,
+            side=ex.side,
+            shares=ex.shares,
+            price=ex.price,
+            permId=ex.permId,
+            clientId=ex.clientId,
+            orderId=ex.orderId,
+            liquidation=ex.liquidation,
+            cumQty=ex.cumQty,
+            avgPrice=ex.avgPrice,
+            orderRef=ex.orderRef,
+            evRule=ex.evRule,
+            evMultiplier=ex.evMultiplier,
+            modelCode=ex.modelCode,
+            lastLiquidity=ex.lastLiquidity,
+            pendingPriceRevision=ex.pendingPriceRevision,
+        )
+
+        ws_commission = WsCommissionReport(
+            execId=cr.execId,
+            commission=cr.commission,
+            currency=cr.currency,
+            realizedPNL=cr.realizedPNL,
+            yield_=cr.yield_,
+            yieldRedemptionDate=cr.yieldRedemptionDate,
+        )
+
+        ws_fill = WsFill(
+            contract=ws_contract,
+            execution=ws_execution,
+            commissionReport=ws_commission,
+            time=fill.time.isoformat() if fill.time else "",
+        )
+
+        envelope = WsEnvelope(
+            type=event_type,
+            seq=0,  # Overwritten by hub.broadcast
+            timestamp=datetime.now(UTC).isoformat(),
+            fill=ws_fill,
+        )
+        self.hub.broadcast(envelope.model_dump())
+        log.info(
+            "WS event: %s %s %s %.4g @ %.2f",
+            event_type, ex.side, contract.symbol,
+            ex.shares, ex.price,
+        )
