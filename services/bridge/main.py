@@ -37,10 +37,7 @@ async def amain() -> None:
 
     log.info("IBKR Bridge starting (mode=%s)", get_trading_mode())
 
-    await client.connect()
-
-    client.ib.disconnectedEvent += client.on_disconnect
-
+    # Start HTTP server first so /health is reachable while connecting
     app = create_routes(client)
     runner = web.AppRunner(app)
     await runner.setup()
@@ -48,6 +45,10 @@ async def amain() -> None:
     site = web.TCPSite(runner, "0.0.0.0", api_port)
     await site.start()
     log.info("HTTP API listening on port %d", api_port)
+
+    await client.connect()
+
+    client.ib.disconnectedEvent += client.on_disconnect
 
     await client.watchdog()
 

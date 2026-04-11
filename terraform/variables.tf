@@ -8,6 +8,10 @@ variable "java_heap_size" {
   description = "IB Gateway Java heap size in MB (determines droplet size)"
   type        = string
   default     = "768"
+  validation {
+    condition     = can(tonumber(var.java_heap_size))
+    error_message = "java_heap_size must be a numeric value (e.g. \"768\")"
+  }
 }
 
 variable "droplet_size" {

@@ -88,7 +88,7 @@ e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)
 	fi
 
 e2e-down: ## Stop and remove E2E test stack
-	docker compose -p $(PROJECT)-test down
+	$(E2E_COMPOSE) down
 
 e2e-run: ## Run E2E tests (stack must be up)
 	@$(E2E_COMPOSE) restart bridge > /dev/null 2>&1 && sleep 3

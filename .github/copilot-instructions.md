@@ -79,6 +79,7 @@
 
 ## IB Gateway Connection
 
+- **The HTTP server starts before the IB connection.** `main.py` binds the aiohttp server first, then calls `client.connect()`. This ensures `/health` is reachable (returning `connected: false`) while the Gateway is down or during reconnection. Handlers return 503 when `client.is_connected` is `False`.
 - **The `IBClient` class manages the connection lifecycle.** It connects with exponential backoff (`INITIAL_RETRY_DELAY=10` to `MAX_RETRY_DELAY=300`), auto-reconnects on disconnect via the `disconnectedEvent` callback, and runs a 30-second watchdog loop.
 - **Trading mode** is determined by `TRADING_MODE` env var (`paper` or `live`). Paper uses port 4004, live uses port 4003.
 - **Client ID is hardcoded to 1.** Only one `IBClient` instance connects to the Gateway at a time.
@@ -163,7 +164,8 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
 
 - Set `DROPLET_IP` and `SSH_KEY` in `.env` (no `DO_API_TOKEN` needed).
 - `make deploy` rsyncs files, pushes `.env`, and starts services using `docker-compose.shared.yml` overlay.
-- The shared overlay disables Caddy (the host project runs it) and connects all containers to `relay-net` external Docker network.
+- The shared overlay disables Caddy (the host project runs it) and connects all containers to the shared Docker network (`SHARED_NETWORK` env var, typically `relay-net`).
+- **`SHARED_NETWORK` controls cross-project networking.** The base `docker-compose.yml` uses `name: ${SHARED_NETWORK:-}` for the default network. When unset, Docker Compose creates a project-scoped network (isolated). When set to the same value across projects (e.g. `relay-net`), all projects share a single network and can reach each other's containers by service name. The shared overlay (`docker-compose.shared.yml`) sets the network to `external: true`, which merges on top of the base definition.
 - Caddy snippet files are deployed to the host project's Caddy to enable routing.
 - `make sync` uses the shared compose overlay automatically.
 
@@ -293,6 +295,7 @@ The `infra/gateway-controller/` container provides HTTP endpoints to start/check
 
 - **`POST /cgi-bin/start-gateway`** — starts the `ib-gateway` container via Docker socket.
 - **`GET /cgi-bin/gateway-status`** — returns the `ib-gateway` container state.
+- **Container discovery uses Compose labels** (`com.docker.compose.service=ib-gateway` + `com.docker.compose.project`), not hardcoded container names. This is robust across project name changes and Compose naming conventions.
 - These are served via busybox httpd as CGI scripts. The container mounts the Docker socket (`/var/run/docker.sock`). Caddy rewrites `/gateway/*` to `/cgi-bin/*` before proxying.
 - Exposed at `https://{VNC_DOMAIN}/gateway/*` via Caddy reverse proxy.
 - **The entire VNC domain is protected by HTTP Basic Auth.** Caddy's `basic_auth` directive uses a bcrypt hash of `VNC_SERVER_PASSWORD`, generated at container startup by `infra/caddy/docker-entrypoint.sh`. The username defaults to `admin` and can be overridden via `VNC_BASIC_AUTH_USER` env var.
@@ -361,7 +364,7 @@ python3 -m cli order -5 TSLA LMT 250.00
 ```
 .env.example              # Template — copy to .env and fill in real values
 docker-compose.yml        # All services (ib-gateway, bridge, novnc, caddy, gateway-controller)
-docker-compose.shared.yml # Shared-mode overlay (disables Caddy, uses relay-net)
+docker-compose.shared.yml # Shared-mode overlay (disables Caddy, uses SHARED_NETWORK)
 docker-compose.local.yml  # Local dev override (direct port access, no TLS)
 docker-compose.test.yml   # Test stack override (paper mode, no Caddy/noVNC)
 cli/                      # Python CLI (operator scripts)

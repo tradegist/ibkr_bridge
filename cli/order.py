@@ -44,7 +44,7 @@ def run(args: argparse.Namespace) -> None:
 
     payload = {"contract": contract, "order": order}
 
-    price_str = f" @ ${limit_price}" if limit_price else ""
+    price_str = f" @ ${limit_price}" if limit_price is not None else ""
     flags = []
     if tif != "DAY":
         flags.append(tif)

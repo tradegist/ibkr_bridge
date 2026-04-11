@@ -49,7 +49,7 @@ resource "digitalocean_ssh_key" "deploy" {
 # Droplet
 # ---------------------------------------------------------------------------
 locals {
-  heap = tonumber(var.java_heap_size)
+  heap = var.droplet_size != "" ? 0 : tonumber(var.java_heap_size)
   heap_based_size = (
     local.heap <= 1024 ? "s-1vcpu-2gb" :
     local.heap <= 3072 ? "s-2vcpu-4gb" :
