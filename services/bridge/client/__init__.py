@@ -69,6 +69,7 @@ class IBClient:
         self._retry_delay = INITIAL_RETRY_DELAY
         self._connect_lock = asyncio.Lock()
         self._background_tasks: set[asyncio.Task[None]] = set()
+        self._events_subscribed = False
         self.orders = OrdersNamespace(self.ib)
         self.trades = TradesNamespace(self.ib)
 
@@ -98,6 +99,7 @@ class IBClient:
                         "Connected — %d account(s)", len(self.ib.managedAccounts())
                     )
                     self._retry_delay = INITIAL_RETRY_DELAY
+                    self._broadcast_status("connected")
                     return
                 except Exception as exc:
                     log.warning(
@@ -131,9 +133,11 @@ class IBClient:
 
     def subscribe_events(self) -> None:
         """Register ib_async event callbacks. Call once after connect."""
+        if self._events_subscribed:
+            return
         self.ib.execDetailsEvent += self._on_exec_details
         self.ib.commissionReportEvent += self._on_commission_report
-        self._broadcast_status("connected")
+        self._events_subscribed = True
 
     def _broadcast_status(self, status: WsStatusType) -> None:
         envelope = WsEnvelope(

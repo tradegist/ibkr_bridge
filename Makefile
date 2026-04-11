@@ -55,6 +55,7 @@ typecheck: ## Run mypy strict type checking
 
 lint: ## Run ruff linter (use FIX=1 to auto-fix)
 	$(PYTHON) -m ruff check services/bridge/ cli/ schema_gen.py gen_python_types.py $(if $(FIX),--fix)
+	@grep -rn '__all__' services/ types/ cli/ --include='*.py' && { echo "ERROR: __all__ is banned — use explicit re-exports"; exit 1; } || true
 
 e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)
 	@test -f $(E2E_ENV) || { echo "ERROR: $(E2E_ENV) not found — copy .env.test.example to .env.test and fill in credentials"; exit 1; }

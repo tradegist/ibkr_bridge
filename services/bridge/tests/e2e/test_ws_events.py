@@ -44,12 +44,11 @@ class TestWsAuth:
     def test_ws_rejects_no_auth(self) -> None:
         """WS upgrade without auth header should be rejected."""
         async def _run() -> None:
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(WS_URL) as ws:
-                    msg = await asyncio.wait_for(ws.receive(), timeout=5)
-                    if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
-                        return
-                    pytest.fail("Expected WS to be closed by server")
+            async with aiohttp.ClientSession() as session, session.ws_connect(WS_URL) as ws:
+                msg = await asyncio.wait_for(ws.receive(), timeout=5)
+                if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
+                    return
+                pytest.fail("Expected WS to be closed by server")
 
         # Auth middleware should reject with 401 before upgrade completes.
         with pytest.raises(aiohttp.WSServerHandshakeError) as exc_info:
@@ -60,11 +59,10 @@ class TestWsAuth:
     def test_ws_connects_with_auth(self) -> None:
         """WS upgrade with valid auth should succeed."""
         async def _run() -> bool:
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(WS_URL) as ws:
-                    assert not ws.closed
-                    await ws.close()
-                    return True
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
+                assert not ws.closed
+                await ws.close()
+                return True
 
         result = asyncio.run(_run())
         assert result is True
@@ -80,24 +78,23 @@ class TestWsEventDelivery:
         """
         async def _run() -> list[dict[str, object]]:
             events: list[dict[str, object]] = []
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(WS_URL) as ws:
-                    _place_market_order(api)
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
+                _place_market_order(api)
 
-                    # Collect events for up to 30s (fills can take a moment)
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=30)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                events.append(msg.json())
-                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
-                                break
-                            if any(e.get("type") == "execDetailsEvent" for e in events):
-                                break
-                    except asyncio.TimeoutError:
-                        pass
+                # Collect events for up to 30s (fills can take a moment)
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=30)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            events.append(msg.json())
+                        elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
+                            break
+                        if any(e.get("type") == "execDetailsEvent" for e in events):
+                            break
+                except TimeoutError:
+                    pass
 
-                    await ws.close()
+                await ws.close()
             return events
 
         events = asyncio.run(_run())
@@ -130,22 +127,21 @@ class TestWsEventDelivery:
         async def _run() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
             first_events: list[dict[str, object]] = []
 
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(WS_URL) as ws:
-                    _place_market_order(api)
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
+                _place_market_order(api)
 
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=30)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                first_events.append(msg.json())
-                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
-                                break
-                            if any(e.get("type") == "execDetailsEvent" for e in first_events):
-                                break
-                    except asyncio.TimeoutError:
-                        pass
-                    await ws.close()
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=30)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            first_events.append(msg.json())
+                        elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED):
+                            break
+                        if any(e.get("type") == "execDetailsEvent" for e in first_events):
+                            break
+                except TimeoutError:
+                    pass
+                await ws.close()
 
             if not any(e.get("type") == "execDetailsEvent" for e in first_events):
                 pytest.skip(
@@ -155,18 +151,17 @@ class TestWsEventDelivery:
 
             # Reconnect with last_seq=0 to replay all buffered events
             replay_events: list[dict[str, object]] = []
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=5)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                replay_events.append(msg.json())
-                            else:
-                                break
-                    except asyncio.TimeoutError:
-                        pass
-                    await ws.close()
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=5)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            replay_events.append(msg.json())
+                        else:
+                            break
+                except TimeoutError:
+                    pass
+                await ws.close()
 
             return first_events, replay_events
 
@@ -190,41 +185,39 @@ class TestWsEventDelivery:
         async def _run() -> tuple[int, list[dict[str, object]]]:
             # Step 1: get current max seq by connecting briefly
             current_max_seq = 0
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=3)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = msg.json()
-                                current_max_seq = max(current_max_seq, data.get("seq", 0))
-                            else:
-                                break
-                    except asyncio.TimeoutError:
-                        pass
-                    await ws.close()
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=3)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            data = msg.json()
+                            current_max_seq = max(current_max_seq, data.get("seq", 0))
+                        else:
+                            break
+                except TimeoutError:
+                    pass
+                await ws.close()
 
             if current_max_seq == 0:
                 pytest.skip("No events in buffer — nothing to test replay against")
 
             # Step 2: place a new order to generate fresh events
             new_max_seq = current_max_seq
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(WS_URL) as ws:
-                    _place_market_order(api)
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=30)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = msg.json()
-                                new_max_seq = max(new_max_seq, data.get("seq", 0))
-                                if data.get("type") == "execDetailsEvent":
-                                    break
-                            else:
+            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
+                _place_market_order(api)
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=30)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            data = msg.json()
+                            new_max_seq = max(new_max_seq, data.get("seq", 0))
+                            if data.get("type") == "execDetailsEvent":
                                 break
-                    except asyncio.TimeoutError:
-                        pass
-                    await ws.close()
+                        else:
+                            break
+                except TimeoutError:
+                    pass
+                await ws.close()
 
             if new_max_seq <= current_max_seq:
                 pytest.skip(
@@ -234,18 +227,20 @@ class TestWsEventDelivery:
 
             # Step 3: reconnect with last_seq = previous max
             replay_events: list[dict[str, object]] = []
-            async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session:
-                async with session.ws_connect(f"{WS_URL}?last_seq={current_max_seq}") as ws:
-                    try:
-                        while True:
-                            msg = await asyncio.wait_for(ws.receive(), timeout=5)
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                replay_events.append(msg.json())
-                            else:
-                                break
-                    except asyncio.TimeoutError:
-                        pass
-                    await ws.close()
+            async with (
+                aiohttp.ClientSession(headers=AUTH_HEADERS) as session,
+                session.ws_connect(f"{WS_URL}?last_seq={current_max_seq}") as ws,
+            ):
+                try:
+                    while True:
+                        msg = await asyncio.wait_for(ws.receive(), timeout=5)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            replay_events.append(msg.json())
+                        else:
+                            break
+                except TimeoutError:
+                    pass
+                await ws.close()
 
             return current_max_seq, replay_events
 

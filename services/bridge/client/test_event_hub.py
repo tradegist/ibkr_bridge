@@ -110,14 +110,14 @@ class TestEventHubSubscribe(unittest.TestCase):
     def test_duplicate_id_raises(self) -> None:
         hub = EventHub(buffer_size=10, max_subscribers=2)
         hub.subscribe("sub-1")
-        with self.assertRaises(RuntimeError, msg="already registered"):
+        with self.assertRaisesRegex(RuntimeError, "already registered"):
             hub.subscribe("sub-1")
 
     def test_max_subscribers_enforced(self) -> None:
         hub = EventHub(buffer_size=10, max_subscribers=2)
         hub.subscribe("sub-1")
         hub.subscribe("sub-2")
-        with self.assertRaises(RuntimeError, msg="Max subscribers"):
+        with self.assertRaisesRegex(RuntimeError, "Max subscribers"):
             hub.subscribe("sub-3")
 
     def test_subscriber_count(self) -> None:
