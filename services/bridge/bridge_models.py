@@ -1,4 +1,11 @@
-"""Pydantic models for the bridge REST API (order placement)."""
+"""Public Pydantic models for the ibkr-bridge API.
+
+!! PUBLIC CONTRACT — every type defined here is exported to consumers
+!! via the generated TypeScript and Python type packages (make types).
+!! Do NOT add bridge-internal helpers, validation logic, or intermediate
+!! types here.  If you need a private model, put it in the module that
+!! uses it (e.g. client/, bridge_routes/).
+"""
 
 from typing import Literal
 
@@ -131,11 +138,129 @@ class ListTradesResponse(BaseModel):
     trades: list[TradeDetail]
 
 
-# ── Schema export (used by schema_gen.py → make types) ──────────────
+# ── WebSocket event streaming ────────────────────────────────────────
+# Models mirror ib_async 2.1.0 dataclass fields exactly (same names,
+# same nesting).  When bumping ib_async, update these models to match.
 
-SCHEMA_MODELS: list[type[BaseModel]] = [
-    PlaceOrderPayload,
-    PlaceOrderResponse,
-    HealthResponse,
-    ListTradesResponse,
+WsStatusType = Literal["connected", "disconnected"]
+
+WsEventType = Literal[
+    "execDetailsEvent",
+    "commissionReportEvent",
+    "connected",
+    "disconnected",
 ]
+
+
+class WsComboLeg(BaseModel):
+    """Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conId: int
+    ratio: int
+    action: str
+    exchange: str
+    openClose: int
+    shortSaleSlot: int
+    designatedLocation: str
+    exemptCode: int
+
+
+class WsDeltaNeutralContract(BaseModel):
+    """Mirrors ib_async.contract.DeltaNeutralContract (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conId: int
+    delta: float
+    price: float
+
+
+class WsContract(BaseModel):
+    """Mirrors ib_async.contract.Contract (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    secType: str
+    conId: int
+    symbol: str
+    lastTradeDateOrContractMonth: str
+    strike: float
+    right: str
+    multiplier: str
+    exchange: str
+    primaryExchange: str
+    currency: str
+    localSymbol: str
+    tradingClass: str
+    includeExpired: bool
+    secIdType: str
+    secId: str
+    description: str
+    issuerId: str
+    comboLegsDescrip: str
+    comboLegs: list[WsComboLeg] = Field(default_factory=list)
+    deltaNeutralContract: WsDeltaNeutralContract | None = None
+
+
+class WsExecution(BaseModel):
+    """Mirrors ib_async.objects.Execution (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execId: str
+    time: str
+    acctNumber: str
+    exchange: str
+    side: str
+    shares: float
+    price: float
+    permId: int
+    clientId: int
+    orderId: int
+    liquidation: int
+    cumQty: float
+    avgPrice: float
+    orderRef: str
+    evRule: str
+    evMultiplier: float
+    modelCode: str
+    lastLiquidity: int
+    pendingPriceRevision: bool
+
+
+class WsCommissionReport(BaseModel):
+    """Mirrors ib_async.objects.CommissionReport (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execId: str
+    commission: float
+    currency: str
+    realizedPNL: float
+    yield_: float
+    yieldRedemptionDate: int
+
+
+class WsFill(BaseModel):
+    """Mirrors ib_async.objects.Fill NamedTuple (ib_async 2.1.0)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract: WsContract
+    execution: WsExecution
+    commissionReport: WsCommissionReport
+    time: str
+
+
+class WsEnvelope(BaseModel):
+    """Top-level WebSocket message wrapper."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: WsEventType
+    seq: int
+    timestamp: str
+    fill: WsFill | None = None
+
