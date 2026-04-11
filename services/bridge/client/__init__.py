@@ -1,7 +1,6 @@
 """IB Gateway client — connection management and namespace delegation."""
 
 import asyncio
-import dataclasses as dc
 import logging
 import os
 from datetime import UTC, datetime
@@ -189,10 +188,23 @@ class IBClient:
             issuerId=contract.issuerId,
             comboLegsDescrip=contract.comboLegsDescrip,
             comboLegs=[
-                WsComboLeg(**dc.asdict(leg)) for leg in contract.comboLegs
+                WsComboLeg(
+                    conId=leg.conId,
+                    ratio=leg.ratio,
+                    action=leg.action,
+                    exchange=leg.exchange,
+                    openClose=leg.openClose,
+                    shortSaleSlot=leg.shortSaleSlot,
+                    designatedLocation=leg.designatedLocation,
+                    exemptCode=leg.exemptCode,
+                ) for leg in contract.comboLegs
             ],
             deltaNeutralContract=(
-                WsDeltaNeutralContract(**dc.asdict(contract.deltaNeutralContract))
+                WsDeltaNeutralContract(
+                    conId=contract.deltaNeutralContract.conId,
+                    delta=contract.deltaNeutralContract.delta,
+                    price=contract.deltaNeutralContract.price,
+                )
                 if contract.deltaNeutralContract
                 else None
             ),

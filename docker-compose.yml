@@ -96,4 +96,4 @@ volumes:
 
 networks:
   default:
-    name: ${SHARED_NETWORK:-ibkr-bridge-default}
+    name: ${SHARED_NETWORK:-}
