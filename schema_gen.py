@@ -138,5 +138,15 @@ if __name__ == "__main__":
     if model_names is None:
         print(f"ERROR: no SCHEMA_MODELS entry for {mod_name!r}", file=sys.stderr)
         sys.exit(1)
-    models = [getattr(mod, name) for name in model_names]
+
+    models: list[type[BaseModel]] = []
+    for name in model_names:
+        try:
+            model = getattr(mod, name)
+        except AttributeError as exc:
+            raise SystemExit(
+                f"ERROR: model {name!r} not found in module {mod_name!r}. "
+                "Update SCHEMA_MODELS in schema_gen.py or restore the renamed export."
+            ) from exc
+        models.append(model)
     generate_schema(mod, models)
