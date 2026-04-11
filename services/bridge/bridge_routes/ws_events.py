@@ -1,11 +1,12 @@
 """GET /ibkr/ws/events — WebSocket event stream."""
 
 import asyncio
+import contextlib
 import logging
 import os
 import uuid
 
-from aiohttp import WSMessage, web
+from aiohttp import WSMessage, WSMsgType, web
 
 from bridge_routes.constants import hub_key, ws_heartbeat_key
 
@@ -84,10 +85,10 @@ async def handle_ws_events(request: web.Request) -> web.WebSocketResponse:
                     msg = ws_task.result()
                     ws_task = None
                     if msg.type in (
-                        web.WSMsgType.CLOSE,
-                        web.WSMsgType.CLOSING,
-                        web.WSMsgType.CLOSED,
-                        web.WSMsgType.ERROR,
+                        WSMsgType.CLOSE,
+                        WSMsgType.CLOSING,
+                        WSMsgType.CLOSED,
+                        WSMsgType.ERROR,
                     ):
                         break
 
@@ -97,11 +98,16 @@ async def handle_ws_events(request: web.Request) -> web.WebSocketResponse:
                     if not ws.closed:
                         await ws.send_json(event)
         finally:
-            # Cancel any in-flight tasks to avoid dangling coroutines
+            # Cancel any in-flight tasks and drain them to avoid
+            # "Task was destroyed but it is pending" warnings.
             if queue_task is not None:
                 queue_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await queue_task
             if ws_task is not None:
                 ws_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await ws_task
     finally:
         hub.unsubscribe(subscriber_id)
 
