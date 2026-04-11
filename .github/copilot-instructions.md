@@ -111,13 +111,13 @@
 
 Five Docker containers in a single Compose stack on a DigitalOcean droplet:
 
-| Service              | Role                                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------------- |
-| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway` |
+| Service              | Role                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway`    |
 | `bridge`             | Python REST API — connects to Gateway via ib_async, exposes `/ibkr/order` and `/ibkr/trades` |
-| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring                                  |
-| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.          |
-| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket |
+| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring                                      |
+| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.              |
+| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket  |
 
 All secrets are injected via `.env` → `environment` in `docker-compose.yml`.
 Caddy reads `SITE_DOMAIN` and `VNC_DOMAIN` from env vars.
@@ -129,10 +129,11 @@ The Caddyfile uses `import` directives to compose routing from snippet files:
 ```
 infra/caddy/
   Caddyfile              # Shell: imports from sites/, domains/, and shared dirs
+  docker-entrypoint.sh   # Hashes VNC_SERVER_PASSWORD → VNC_BASIC_AUTH_HASH, then starts Caddy
   sites/
-    ibkr-bridge.caddy    # SITE_DOMAIN route handlers (/ibkr/order, /ibkr/trades)
+    ibkr-bridge.caddy    # SITE_DOMAIN route handlers (/ibkr/order, /ibkr/trades, /health)
   domains/
-    ibkr-vnc.caddy       # VNC_DOMAIN routes (noVNC + gateway-controller)
+    ibkr-vnc.caddy       # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
 ```
 
 Shared projects deploy snippets to `/opt/caddy-shared/` on the droplet (not into the host project's directory). The host Caddy mounts:
@@ -172,12 +173,12 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
 - `cli/__init__.py` `_droplet_size()` implements the sizing logic.
 - `cli/core/resume.py` uses `cfg.droplet_size()` which delegates to the same function.
 
-| Heap (MB) | Droplet          | RAM   |
-| --------- | ---------------- | ----- |
-| ≤ 1024    | `s-1vcpu-2gb`    | 2 GB  |
-| ≤ 3072    | `s-2vcpu-4gb`    | 4 GB  |
-| ≤ 6144    | `s-4vcpu-8gb`    | 8 GB  |
-| > 6144    | `s-8vcpu-16gb`   | 16 GB |
+| Heap (MB) | Droplet        | RAM   |
+| --------- | -------------- | ----- |
+| ≤ 1024    | `s-1vcpu-2gb`  | 2 GB  |
+| ≤ 3072    | `s-2vcpu-4gb`  | 4 GB  |
+| ≤ 6144    | `s-4vcpu-8gb`  | 8 GB  |
+| > 6144    | `s-8vcpu-16gb` | 16 GB |
 
 ## Auth Pattern
 
@@ -208,6 +209,7 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
   - **`@patch(...)`** decorator — for single-test or single-class patches.
   - Never use bare `_patcher.start()` without registering a `.stop()`.
 - **Use `setUpModule()` / `tearDownModule()` for env var overrides.** When tests need specific `os.environ` values, save originals in `setUpModule()` and restore in `tearDownModule()`. The pattern:
+
   ```python
   _ORIG_ENV: dict[str, str | None] = {}
   _TEST_ENV = {"MY_VAR": "test-value"}
@@ -224,6 +226,7 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
           else:
               os.environ[key] = orig
   ```
+
 - **Avoid reading env vars at module level in production code.** Defer env reads to a getter function so tests can set env vars normally in `setUpModule()` and get fresh reads on each call.
 - **No cross-test dependencies.** Every test must be self-contained.
 - **E2E conftest fixtures must use `yield` with a context manager.** Use `with httpx.Client(...) as client: yield client`. Scope to `session`. Every E2E `conftest.py` must include a `_preflight_check` fixture (`scope="session"`, `autouse=True`) that hits `/health` and calls `pytest.exit()` if the stack is unreachable.
@@ -266,9 +269,9 @@ services/bridge/
 
 All models live in a single file: `services/bridge/bridge_models.py`.
 
-| Model                | Direction | Description                                          |
-| -------------------- | --------- | ---------------------------------------------------- |
-| `PlaceOrderPayload`  | Inbound   | `POST /ibkr/order` request body (contract + order)   |
+| Model                | Direction | Description                                           |
+| -------------------- | --------- | ----------------------------------------------------- |
+| `PlaceOrderPayload`  | Inbound   | `POST /ibkr/order` request body (contract + order)    |
 | `ContractPayload`    | Inbound   | Contract fields (symbol, secType, exchange, currency) |
 | `OrderPayload`       | Inbound   | Order fields (action, qty, type, price, tif)          |
 | `PlaceOrderResponse` | Outbound  | Order placement result (status, orderId, etc.)        |
@@ -290,6 +293,7 @@ The `infra/gateway-controller/` container provides HTTP endpoints to start/check
 - **`GET /cgi-bin/gateway-status`** — returns the `ib-gateway` container state.
 - These are served via busybox httpd as CGI scripts. The container mounts the Docker socket (`/var/run/docker.sock`).
 - Exposed at `https://{VNC_DOMAIN}/gateway/*` via Caddy reverse proxy.
+- **The entire VNC domain is protected by HTTP Basic Auth.** Caddy's `basic_auth` directive uses a bcrypt hash of `VNC_SERVER_PASSWORD`, generated at container startup by `infra/caddy/docker-entrypoint.sh`. The username defaults to `admin` and can be overridden via `VNC_BASIC_AUTH_USER` env var.
 
 ## TypeScript Types
 
@@ -381,10 +385,11 @@ services/
 infra/
   caddy/
     Caddyfile             # Reverse proxy config (SITE_DOMAIN + VNC_DOMAIN)
+    docker-entrypoint.sh  # Hashes VNC_SERVER_PASSWORD → VNC_BASIC_AUTH_HASH, then starts Caddy
     sites/
-      ibkr-bridge.caddy   # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades)
+      ibkr-bridge.caddy   # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /health)
     domains/
-      ibkr-vnc.caddy      # VNC_DOMAIN routes (noVNC + gateway-controller)
+      ibkr-vnc.caddy      # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
   gateway-controller/     # CGI container for Gateway lifecycle control
     Dockerfile
     start-gateway.sh

@@ -5,3 +5,7 @@ handle /ibkr/order {
 handle /ibkr/trades {
     reverse_proxy bridge:5000
 }
+
+handle /health {
+    reverse_proxy bridge:5000
+}

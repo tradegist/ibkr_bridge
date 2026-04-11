@@ -1,6 +1,5 @@
 """Orders namespace — place, cancel, and query orders."""
 
-import asyncio
 import logging
 
 from ib_async import IB, Contract, LimitOrder, MarketOrder, Order
@@ -73,11 +72,8 @@ class OrdersNamespace:
         except Exception as exc:
             raise RuntimeError(f"Order placement failed: {exc}") from exc
 
-        # Give IBKR a moment to acknowledge
-        await asyncio.sleep(1)
-
         return PlaceOrderResponse(
-            status=trade.orderStatus.status,
+            status="PendingSubmit",
             orderId=trade.order.permId,
             action=order_req.action,
             symbol=contract_req.symbol,

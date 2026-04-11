@@ -3,7 +3,7 @@
 
 printf "Content-Type: application/json\r\n\r\n"
 
-state=$(docker inspect --format '{{.State.Status}}' ${COMPOSE_PROJECT_NAME}-ib-gateway-1 2>/dev/null)
+state=$(docker inspect --format '{{.State.Status}}' "${COMPOSE_PROJECT_NAME}-ib-gateway-1" 2>/dev/null)
 if [ -z "$state" ]; then
   state="not found"
 fi

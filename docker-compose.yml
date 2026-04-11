@@ -44,10 +44,15 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    entrypoint: /bin/sh
+    command: ["/etc/caddy/docker-entrypoint.sh"]
     environment:
       VNC_DOMAIN: ${VNC_DOMAIN:?Set VNC_DOMAIN in .env}
       SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:?Set VNC_SERVER_PASSWORD in .env}
+      VNC_BASIC_AUTH_USER: ${VNC_BASIC_AUTH_USER:-admin}
     volumes:
+      - ./infra/caddy/docker-entrypoint.sh:/etc/caddy/docker-entrypoint.sh:ro
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./infra/caddy/sites/:/etc/caddy/sites/:ro
       - ./infra/caddy/domains/:/etc/caddy/domains/:ro

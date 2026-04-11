@@ -8,11 +8,12 @@ if [ "$REQUEST_METHOD" != "POST" ]; then
   exit 0
 fi
 
-result=$(docker start ${COMPOSE_PROJECT_NAME}-ib-gateway-1 2>&1)
+result=$(docker start "${COMPOSE_PROJECT_NAME}-ib-gateway-1" 2>&1)
 exit_code=$?
 
 if [ $exit_code -eq 0 ]; then
   printf '{"status":"started"}'
 else
-  printf '{"status":"error","detail":"%s"}' "$(echo "$result" | tail -1 | tr '"' "'")"
+  detail=$(echo "$result" | tail -1 | tr '"\\' "' ")
+  printf '{"status":"error","detail":"%s"}' "$detail"
 fi

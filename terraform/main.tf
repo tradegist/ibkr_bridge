@@ -91,7 +91,7 @@ resource "digitalocean_reserved_ip" "bridge" {
 }
 
 # ---------------------------------------------------------------------------
-# Firewall — restrict SSH + noVNC to deployer IP only
+# Firewall — restrict SSH to deployer IP; HTTP/HTTPS open for Caddy
 # ---------------------------------------------------------------------------
 resource "digitalocean_firewall" "bridge" {
   name        = "ibkr-bridge-fw"

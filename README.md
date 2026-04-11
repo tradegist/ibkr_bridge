@@ -58,7 +58,7 @@ POST /ibkr/order
     "action": "BUY",
     "totalQuantity": 10,
     "orderType": "LMT",
-    "lmtPrice": 150.00,
+    "lmtPrice": 150.0,
     "tif": "DAY"
   }
 }
@@ -74,7 +74,7 @@ Response:
   "symbol": "AAPL",
   "totalQuantity": 10,
   "orderType": "LMT",
-  "lmtPrice": 150.00
+  "lmtPrice": 150.0
 }
 ```
 
@@ -94,7 +94,7 @@ Returns session trades + completed orders, deduplicated by permanent order ID:
       "action": "BUY",
       "totalQuantity": 10,
       "orderType": "LMT",
-      "lmtPrice": 150.00,
+      "lmtPrice": 150.0,
       "tif": "DAY",
       "symbol": "AAPL",
       "secType": "STK",
@@ -112,7 +112,7 @@ Returns session trades + completed orders, deduplicated by permanent order ID:
           "side": "BOT",
           "shares": 10,
           "price": 149.95,
-          "commission": 1.00,
+          "commission": 1.0,
           "commissionCurrency": "USD",
           "realizedPNL": 0.0
         }
@@ -137,7 +137,7 @@ POST /gateway/start-gateway    # Start the ib-gateway container
 GET  /gateway/gateway-status   # Check ib-gateway container state
 ```
 
-These endpoints are served on the **VNC domain** (not `SITE_DOMAIN`), accessible via the gateway-controller container.
+These endpoints are served on the **VNC domain** (not `SITE_DOMAIN`), accessible via the gateway-controller container. The entire VNC domain is protected by HTTP Basic Auth (username defaults to `admin`, password is `VNC_SERVER_PASSWORD`). Override the username with `VNC_BASIC_AUTH_USER` in `.env`.
 
 ## Architecture
 
@@ -227,10 +227,10 @@ make local-down   # stop and remove
 
 Endpoints after startup:
 
-| Service  | URL                             |
-| -------- | ------------------------------- |
-| REST API | http://localhost:15101/health    |
-| VNC      | http://localhost:15100           |
+| Service  | URL                           |
+| -------- | ----------------------------- |
+| REST API | http://localhost:15101/health |
+| VNC      | http://localhost:15100        |
 
 #### Updating the local stack after code changes
 
@@ -246,22 +246,22 @@ make sync ENV=local          # restart all containers
 
 All configuration is via environment variables in `.env`:
 
-| Variable              | Required | Default             | Description                                                                                            |
-| --------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
-| `DEPLOY_MODE`         | Yes      | —                   | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                      |
-| `DO_API_TOKEN`        | Yes\*    | —                   | DigitalOcean API token (standalone mode only — can be removed after first deploy)                      |
-| `DROPLET_IP`          | Yes\*    | —                   | Droplet IP (from Terraform output in standalone; provided by host in shared)                           |
-| `SSH_KEY`             | No       | `~/.ssh/ibkr-bridge`| SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this.  |
-| `TWS_USERID`          | Yes      | —                   | IBKR username                                                                                          |
-| `TWS_PASSWORD`        | Yes      | —                   | IBKR password                                                                                          |
-| `VNC_SERVER_PASSWORD`  | Yes      | —                   | Password for VNC access to the Gateway GUI                                                             |
-| `TRADING_MODE`        | No       | `paper`             | `paper` or `live`                                                                                      |
-| `VNC_DOMAIN`          | Yes      | —                   | Domain for VNC access (e.g. `vnc.example.com`)                                                         |
-| `SITE_DOMAIN`         | Yes      | —                   | Domain for the REST API (e.g. `trade.example.com`)                                                     |
-| `API_TOKEN`           | Yes      | —                   | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                          |
-| `JAVA_HEAP_SIZE`      | No       | `768`               | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                     |
-| `DROPLET_SIZE`        | No       | (auto)              | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.        |
-| `TIME_ZONE`           | No       | `America/New_York`  | Timezone (tz database format)                                                                          |
+| Variable              | Required | Default              | Description                                                                                           |
+| --------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DEPLOY_MODE`         | Yes      | —                    | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                     |
+| `DO_API_TOKEN`        | Yes\*    | —                    | DigitalOcean API token (standalone mode only — can be removed after first deploy)                     |
+| `DROPLET_IP`          | Yes\*    | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                          |
+| `SSH_KEY`             | No       | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
+| `TWS_USERID`          | Yes      | —                    | IBKR username                                                                                         |
+| `TWS_PASSWORD`        | Yes      | —                    | IBKR password                                                                                         |
+| `VNC_SERVER_PASSWORD` | Yes      | —                    | Password for VNC access to the Gateway GUI                                                            |
+| `TRADING_MODE`        | No       | `paper`              | `paper` or `live`                                                                                     |
+| `VNC_DOMAIN`          | Yes      | —                    | Domain for VNC access (e.g. `vnc.example.com`)                                                        |
+| `SITE_DOMAIN`         | Yes      | —                    | Domain for the REST API (e.g. `trade.example.com`)                                                    |
+| `API_TOKEN`           | Yes      | —                    | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                         |
+| `JAVA_HEAP_SIZE`      | No       | `768`                | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                    |
+| `DROPLET_SIZE`        | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
+| `TIME_ZONE`           | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -287,12 +287,12 @@ Two domain names are **required**. Caddy uses them to automatically provision TL
 
 The droplet size is auto-selected based on `JAVA_HEAP_SIZE`:
 
-| Heap (MB) | Droplet          | RAM   |
-| --------- | ---------------- | ----- |
-| ≤ 1024    | `s-1vcpu-2gb`    | 2 GB  |
-| ≤ 3072    | `s-2vcpu-4gb`    | 4 GB  |
-| ≤ 6144    | `s-4vcpu-8gb`    | 8 GB  |
-| > 6144    | `s-8vcpu-16gb`   | 16 GB |
+| Heap (MB) | Droplet        | RAM   |
+| --------- | -------------- | ----- |
+| ≤ 1024    | `s-1vcpu-2gb`  | 2 GB  |
+| ≤ 3072    | `s-2vcpu-4gb`  | 4 GB  |
+| ≤ 6144    | `s-4vcpu-8gb`  | 8 GB  |
+| > 6144    | `s-8vcpu-16gb` | 16 GB |
 
 Override with `DROPLET_SIZE` in `.env` to use a specific slug regardless of heap size.
 
@@ -361,15 +361,15 @@ make logs S=bridge ENV=local           # stream local bridge logs
 
 After changing a variable in `.env`, restart only the affected service:
 
-| Variable                | Service  | Command               |
-| ----------------------- | -------- | --------------------- |
-| `API_TOKEN`             | bridge   | `make sync S=bridge`  |
-| `TRADING_MODE`          | bridge, ib-gateway | `make sync`  |
-| `TWS_USERID/PASSWORD`   | ib-gateway | `make sync S=gateway` |
-| `VNC_SERVER_PASSWORD`    | ib-gateway | `make sync S=gateway` |
-| `SITE_DOMAIN`           | caddy    | `make sync S=caddy`   |
-| `VNC_DOMAIN`            | caddy    | `make sync S=caddy`   |
-| Multiple or unsure      | all      | `make sync`           |
+| Variable              | Service            | Command               |
+| --------------------- | ------------------ | --------------------- |
+| `API_TOKEN`           | bridge             | `make sync S=bridge`  |
+| `TRADING_MODE`        | bridge, ib-gateway | `make sync`           |
+| `TWS_USERID/PASSWORD` | ib-gateway         | `make sync S=gateway` |
+| `VNC_SERVER_PASSWORD` | ib-gateway         | `make sync S=gateway` |
+| `SITE_DOMAIN`         | caddy              | `make sync S=caddy`   |
+| `VNC_DOMAIN`          | caddy              | `make sync S=caddy`   |
+| Multiple or unsure    | all                | `make sync`           |
 
 ### Syncing code changes
 
@@ -505,10 +505,11 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 ├── infra/
 │   ├── caddy/
 │   │   ├── Caddyfile              # Reverse proxy config (SITE_DOMAIN + VNC_DOMAIN)
+│   │   ├── docker-entrypoint.sh   # Hashes VNC_SERVER_PASSWORD → VNC_BASIC_AUTH_HASH
 │   │   ├── sites/
-│   │   │   └── ibkr-bridge.caddy  # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades)
+│   │   │   └── ibkr-bridge.caddy  # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /health)
 │   │   └── domains/
-│   │       └── ibkr-vnc.caddy    # VNC_DOMAIN routes (noVNC + gateway-controller)
+│   │       └── ibkr-vnc.caddy    # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
 │   ├── gateway-controller/
 │   │   ├── Dockerfile             # Alpine + docker CLI for container control
 │   │   ├── start-gateway.sh       # CGI: start ib-gateway container
