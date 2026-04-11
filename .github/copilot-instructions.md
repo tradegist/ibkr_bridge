@@ -39,7 +39,7 @@
   4. `make e2e-down` — tear down **only after all tests pass**. Never tear down between iterations.
 - When modifying any Python file (`.py`), always run `make test`, `make typecheck`, and `make lint` and confirm all pass before deploying.
 - **Every Python file must be covered by `make typecheck`.** When adding a new Python package or script, immediately add it to the mypy invocation in the Makefile.
-- After modifying any model in `services/bridge/bridge_models.py`, also run `make types` to regenerate the TypeScript definitions.
+- After modifying any model in `services/bridge/bridge_models.py`, also run `make types` to regenerate the TypeScript and Python type packages.
 - **Always verify type safety by breaking it first.** After any refactor that touches types or model construction, deliberately introduce a type error, run `make typecheck`, and confirm it **fails**. Then revert and confirm it passes.
 - **Avoid `dict[str, Any]` round-trips.** Never use `model_dump()` → `dict` → `Model(**data)` — mypy cannot type-check `**dict[str, Any]`. Use explicit keyword arguments or `model_copy(update=...)` instead.
 - **Prefer strict `Literal` types over bare `str` on Pydantic models.** Financial applications demand precision. When a field has a known set of valid values (e.g. `Action`, `OrderType`, `SecType`, `TimeInForce`, `ExecSide`), always use the existing `Literal` type alias. Only fall back to `str` when the external source (e.g. IB Gateway) genuinely returns unbounded values — and document why with an inline comment (see `TradeDetail.action` and `TradeDetail.orderType` for examples).
@@ -84,6 +84,7 @@
 - **Trading mode** is determined by `TRADING_MODE` env var (`paper` or `live`). Paper uses port 4004, live uses port 4003.
 - **Client ID is hardcoded to 1.** Only one `IBClient` instance connects to the Gateway at a time.
 - **Namespace delegation.** Orders and trades are separated into `OrdersNamespace` and `TradesNamespace`, each receiving the `ib_async.IB` instance. This keeps domain logic isolated from connection management.
+- **Event wiring.** After connect, `subscribe_events()` registers `execDetailsEvent` and `commissionReportEvent` callbacks on the `IB` object. These map ib_async fills to `WsEnvelope` and broadcast via `EventHub`. Events survive reconnections because they're registered on the `IB` object, not the connection.
 
 ## Local Development
 
@@ -189,6 +190,22 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
 - **All authenticated routes must use the `AUTH_PREFIX` constant** (from `bridge_routes.constants`) when registering with the router. The auth middleware uses the same constant to decide which requests require a token — hardcoding the path in either place causes them to drift out of sync.
 - `/health` is unauthenticated — used for monitoring and load balancer checks.
 
+## WebSocket Event Streaming
+
+- **`GET /ibkr/ws/events`** upgrades to WebSocket and streams real-time execution events to subscribers.
+- **Auth** uses the same `auth_middleware` — the path starts with `/ibkr/`, so `Authorization: Bearer <API_TOKEN>` is required in the upgrade request headers.
+- **`EventHub`** (`client/event_hub.py`) is the pub/sub core:
+  - Global ring buffer (`collections.deque`) stores last `WS_BUFFER_SIZE` events (default 500).
+  - Each subscriber gets an `asyncio.Queue` for delivery.
+  - `broadcast()` assigns a monotonic `seq` number, appends to buffer, and pushes to all subscriber queues.
+  - `replay(from_seq)` returns buffered events with `seq > from_seq`.
+- **`IBClient.subscribe_events()`** wires `ib.execDetailsEvent` and `ib.commissionReportEvent` callbacks to the hub. Called once after initial connection. Events survive reconnections (registered on the `IB` object, not the connection).
+- **Message format**: `WsEnvelope` (type, seq, timestamp, fill). Event types: `execDetailsEvent`, `commissionReportEvent`, `connected`, `disconnected`.
+- **Zombie detection**: `WebSocketResponse(heartbeat=WS_HEARTBEAT_INTERVAL)` sends pings; aiohttp auto-closes unresponsive connections. Cleanup runs in `try/finally` to unsubscribe.
+- **Max subscribers**: `WS_MAX_SUBSCRIBERS` (default 10). Exceeding returns WS close code 4029.
+- **Reconnect replay**: client passes `?last_seq=N` to receive missed events from the ring buffer.
+- **No new port needed**: WebSocket runs on the same aiohttp server (port 5000). Caddy proxies it transparently (no special upgrade config needed, unlike Nginx).
+
 ## E2E Testing
 
 - **E2E tests run against a local Docker stack** defined by `docker-compose.test.yml` (ib-gateway + bridge, no Caddy/noVNC/controller).
@@ -243,21 +260,25 @@ services/bridge/
   main.py                  # Entrypoint (IB connection + HTTP server startup)
   bridge_models.py         # Pydantic models (all request/response types + Literal aliases)
   client/                  # IB Gateway client (package)
-    __init__.py            # IBClient class (connection, reconnection, watchdog)
+    __init__.py            # IBClient class (connection, reconnection, watchdog, event wiring)
+    event_hub.py           # EventHub (pub/sub broadcast + ring buffer for WS replay)
     orders.py              # OrdersNamespace (place orders)
     trades.py              # TradesNamespace (list trades + fills)
+    test_event_hub.py      # Tests for EventHub
     test_orders.py         # Tests for orders
     test_trades.py         # Tests for trades
   bridge_routes/           # HTTP API
     __init__.py            # Route orchestrator (create_routes)
-    constants.py           # Shared constants (AUTH_PREFIX, client_key)
+    constants.py           # Shared constants (AUTH_PREFIX, client_key, hub_key)
     health.py              # GET /health handler
     middlewares.py         # Auth middleware (Bearer token, HMAC-safe)
     order_place.py         # POST /ibkr/order handler
     trades_list.py         # GET /ibkr/trades handler
+    ws_events.py           # GET /ibkr/ws/events WebSocket handler
     test_middlewares.py    # Tests for auth middleware
     test_order_place.py    # Tests for order handler
     test_trades_list.py    # Tests for trades handler
+    test_ws_events.py      # Tests for WebSocket handler
   tests/e2e/               # E2E tests (require IB Gateway)
     conftest.py            # httpx fixtures (api + anon_api, preflight check)
     test_smoke.py          # Health + auth smoke tests
@@ -265,29 +286,45 @@ services/bridge/
   requirements.txt         # ib_async, aiohttp, httpx, pydantic
 ```
 
-- **`services/bridge/client/`** contains IB Gateway client logic: connection management, order placement, and trade listing. `IBClient` is the main class; `OrdersNamespace` and `TradesNamespace` handle domain logic.
-- **`services/bridge/bridge_routes/`** contains the HTTP API: route registration, auth middleware, and request handlers.
-- **`services/bridge/bridge_models.py`** defines all Pydantic models and Literal type aliases. It includes `SCHEMA_MODELS` for TypeScript generation.
+- **`services/bridge/client/`** contains IB Gateway client logic: connection management, order placement, trade listing, and event broadcasting. `IBClient` is the main class; `OrdersNamespace` and `TradesNamespace` handle domain logic; `EventHub` manages pub/sub for WebSocket subscribers.
+- **`services/bridge/bridge_routes/`** contains the HTTP API: route registration, auth middleware, request handlers, and the WebSocket event stream endpoint.
+- **`services/bridge/bridge_models.py`** defines all public Pydantic models and Literal type aliases. Every type in this file is exported to consumers via `make types` (TypeScript + Python packages). Do not add internal helpers here.
 
-## Models
+## Models (Two Locations)
 
-All models live in a single file: `services/bridge/bridge_models.py`.
+This project has **two model locations** — a shared source of truth (currently empty) and one service-specific file:
 
-| Model                | Direction | Description                                           |
-| -------------------- | --------- | ----------------------------------------------------- |
-| `PlaceOrderPayload`  | Inbound   | `POST /ibkr/order` request body (contract + order)    |
-| `ContractPayload`    | Inbound   | Contract fields (symbol, secType, exchange, currency) |
-| `OrderPayload`       | Inbound   | Order fields (action, qty, type, price, tif)          |
-| `PlaceOrderResponse` | Outbound  | Order placement result (status, orderId, etc.)        |
-| `HealthResponse`     | Outbound  | `GET /health` response                                |
-| `ListTradesResponse` | Outbound  | `GET /ibkr/trades` response (array of TradeDetail)    |
-| `TradeDetail`        | Outbound  | Order + status + fills                                |
-| `FillDetail`         | Outbound  | Single execution fill within a trade                  |
+| File                          | Domain                 | Contains                                                                            |
+| ----------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| `services/shared/__init__.py` | Shared (outbound)      | Reserved for cross-project types (future `IbkrBridge` TS namespace). Currently empty |
+| `services/bridge/bridge_models.py` | Bridge HTTP + WS (outbound) | All HTTP API models, WS event models, and Literal type aliases (`IbkrBridgeHttp` TS namespace) |
 
-Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce` — all `Literal` types used across models.
-
+- **`services/shared/__init__.py`** is reserved for shared/common types that multiple consumers depend on (the `IbkrBridge` primary namespace). When types are added here, they get their own `types/typescript/shared/` directory and `SCHEMA_MODELS` entry in `schema_gen.py`.
+- **`services/bridge/bridge_models.py`** is the single source of truth for all bridge-specific types (HTTP API + WS events). Every type in this file is exported to consumers via `make types` under the `IbkrBridgeHttp` namespace.
 - All external-contract models use `ConfigDict(extra="forbid")` for strict validation.
+
+| Model                    | Direction | Description                                              |
+| ------------------------ | --------- | -------------------------------------------------------- |
+| `PlaceOrderPayload`      | Inbound   | `POST /ibkr/order` request body (contract + order)       |
+| `ContractPayload`        | Inbound   | Contract fields (symbol, secType, exchange, currency)    |
+| `OrderPayload`           | Inbound   | Order fields (action, qty, type, price, tif)             |
+| `PlaceOrderResponse`     | Outbound  | Order placement result (status, orderId, etc.)           |
+| `HealthResponse`         | Outbound  | `GET /health` response                                   |
+| `ListTradesResponse`     | Outbound  | `GET /ibkr/trades` response (array of TradeDetail)       |
+| `TradeDetail`            | Outbound  | Order + status + fills                                   |
+| `FillDetail`             | Outbound  | Single execution fill within a trade                     |
+| `WsEnvelope`             | Outbound  | WebSocket message wrapper (type, seq, timestamp, fill)   |
+| `WsFill`                 | Outbound  | Fill payload (contract + execution + commissionReport)   |
+| `WsContract`             | Outbound  | Mirrors `ib_async.Contract` (ib_async 2.1.0)             |
+| `WsExecution`            | Outbound  | Mirrors `ib_async.Execution` (ib_async 2.1.0)            |
+| `WsCommissionReport`     | Outbound  | Mirrors `ib_async.CommissionReport` (ib_async 2.1.0)     |
+| `WsComboLeg`             | Outbound  | Mirrors `ib_async.ComboLeg` (ib_async 2.1.0)             |
+| `WsDeltaNeutralContract` | Outbound  | Mirrors `ib_async.DeltaNeutralContract` (ib_async 2.1.0) |
+
+Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEventType`, `WsStatusType` — all `Literal` types used across models.
+
 - `TradeDetail.action` and `TradeDetail.orderType` are `str` (not `Action`/`OrderType`) because IB Gateway returns values beyond our constrained Literals for existing orders (e.g. `STP`, `TRAIL`).
+- **WS event models mirror `ib_async` 2.1.0 exactly** — same field names, same nesting (`WsFill.contract`, `WsFill.execution`, `WsFill.commissionReport`). When bumping ib_async, update these models to match.
 
 ## Gateway Controller
 
@@ -302,22 +339,69 @@ The `infra/gateway-controller/` container provides HTTP endpoints to start/check
 
 ## TypeScript Types
 
-- Types are published as `@tradegist/ibkr-bridge-types` (npm package in `types/`, not yet published).
-- **One namespace**: `IbkrBridge` (HTTP API types).
+### Namespace Convention (cross-project standard)
+
+All projects export TypeScript types using a two-tier namespace pattern:
+
+- **`types/typescript/`** (or `types/shared/` in relays) → exported as the **project's primary namespace** (e.g. `IbkrBridge`). Reserved for shared/common types that multiple consumers depend on. Currently empty — no shared types yet.
+- **`types/typescript/<module>/`** → exported as **`<ProjectName><ModuleName>`** (e.g. `IbkrBridgeHttp`). Contains module-specific types generated from that module's `SCHEMA_MODELS`.
+
+The barrel `types/typescript/index.d.ts` currently exports only the HTTP namespace:
+
+```ts
+import * as IbkrBridgeHttp from "./http";
+export { IbkrBridgeHttp };
+```
+
+When shared types are added in the future, the barrel will grow:
+
+```ts
+import * as IbkrBridge from "./shared";
+import * as IbkrBridgeHttp from "./http";
+export { IbkrBridge, IbkrBridgeHttp };
+```
+
+**`IbkrBridge` is reserved for the primary/shared namespace — do not use it for module-specific types.**
+
+### IBKR Bridge Types
+
+- Types are published as `@tradegist/ibkr-bridge-types` (npm package in `types/typescript/`, not yet published).
+- **One namespace**: `IbkrBridgeHttp` (HTTP API + WS event types).
 - **`make types`** regenerates from Pydantic models:
-  - `services/bridge/bridge_models.py` → `types/http/types.d.ts`
+  - `services/bridge/bridge_models.py` → `types/typescript/http/types.d.ts` (TypeScript)
+  - `services/bridge/bridge_models.py` → `types/python/ibkr_bridge_types/models.py` (Python, via `gen_python_types.py`)
 - **Structure:**
   ```
   types/
-    index.d.ts                 # Barrel: exports IbkrBridge namespace
-    package.json               # @tradegist/ibkr-bridge-types
-    http/
-      index.d.ts               # Re-exports all types
-      types.d.ts               # Generated from bridge_models.py (SCHEMA_MODELS)
-      types.schema.json         # Intermediate JSON Schema
+    typescript/
+      index.d.ts                 # Barrel: exports IbkrBridgeHttp namespace
+      package.json               # @tradegist/ibkr-bridge-types
+      http/
+        index.d.ts               # Re-exports all types
+        types.d.ts               # Generated from bridge_models.py (SCHEMA_MODELS)
+        types.schema.json         # Intermediate JSON Schema
+    python/
+      ...
   ```
-- **Usage:** `import { IbkrBridge } from "@tradegist/ibkr-bridge-types"`
-- `bridge_models.py` declares `SCHEMA_MODELS` at the bottom — `schema_gen.py` reads it to generate JSON Schema. **To export a new model to TypeScript, append it to `SCHEMA_MODELS` and update `types/http/index.d.ts` re-exports.**
+- **Usage:** `import { IbkrBridgeHttp } from "@tradegist/ibkr-bridge-types"`
+- `schema_gen.py` owns the `SCHEMA_MODELS` dict that lists which top-level models go into the JSON Schema. **To add a new model to the TypeScript types, add it to `SCHEMA_MODELS` in `schema_gen.py` and update `types/typescript/http/index.d.ts` re-exports.** The Python types package copies the entire `bridge_models.py` file automatically.
+
+## Python Types Package
+
+- Types are available as `ibkr-bridge-types` (PyPI package in `types/python/`, not yet published).
+- **Standalone Pydantic models** — no dependency on `ib_async` or the bridge service.
+- Exports the **same public types** as the TypeScript package: HTTP API models, WS event models, and Literal type aliases.
+- **Structure:**
+  ```
+  types/python/
+    pyproject.toml              # ibkr-bridge-types, deps: pydantic
+    ibkr_bridge_types/
+      __init__.py               # Re-exports all public types
+      models.py                 # All models + type aliases (generated from bridge_models.py)
+  ```
+- **Usage:** `from ibkr_bridge_types import PlaceOrderPayload, WsEnvelope, Action`
+- **Auto-generated** — `models.py` is extracted from `bridge_models.py` by `gen_python_types.py`. Run `make types` to regenerate. Do not edit `models.py` manually.
+- When bumping `ib_async`, update `bridge_models.py` and run `make types` to regenerate both TS and Python types.
 
 ## Code Style
 
@@ -379,9 +463,11 @@ cli/                      # Python CLI (operator scripts)
     resume.py             # Restore from snapshot
     sync.py               # rsync files + pre-deploy checks + restart
 services/
+  shared/               # Shared models (future IbkrBridge TS namespace, currently empty)
+    __init__.py
   bridge/                 # REST API service (see Bridge Structure above)
     main.py               # Entrypoint (IB connection + HTTP server)
-    bridge_models.py      # Pydantic models (all types + SCHEMA_MODELS)
+    bridge_models.py      # Pydantic models (all public types — exported to TS + Python packages)
     client/               # IB Gateway client (connection, orders, trades)
     bridge_routes/        # HTTP API (routes, middleware, handlers)
     constants.py        # Shared constants (AUTH_PREFIX, client_key)
@@ -393,7 +479,7 @@ infra/
     Caddyfile             # Reverse proxy config (SITE_DOMAIN + VNC_DOMAIN)
     docker-entrypoint.sh  # Hashes VNC_SERVER_PASSWORD → VNC_BASIC_AUTH_HASH, then starts Caddy
     sites/
-      ibkr-bridge.caddy   # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /health)
+      ibkr-bridge.caddy   # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /ibkr/ws/events, /health)
     domains/
       ibkr-vnc.caddy      # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
   gateway-controller/     # CGI container for Gateway lifecycle control
@@ -408,10 +494,17 @@ terraform/
   outputs.tf              # Droplet IP, VNC URL, Site URL, SSH key
   cloud-init.sh           # Docker install + project directory
 schema_gen.py             # JSON Schema generator (Pydantic → TS types)
-types/                    # @tradegist/ibkr-bridge-types npm package
-  index.d.ts              # Barrel: exports IbkrBridge namespace
-  package.json
-  http/                   # IbkrBridge namespace
-    index.d.ts
-    types.d.ts            # Generated from bridge_models.py SCHEMA_MODELS
+gen_python_types.py       # Python types generator (bridge_models.py → models.py)
+types/
+  typescript/              # @tradegist/ibkr-bridge-types npm package
+    index.d.ts            # Barrel: exports IbkrBridgeHttp namespace
+    package.json
+    http/                 # IbkrBridgeHttp namespace
+      index.d.ts
+      types.d.ts          # Generated from bridge_models.py SCHEMA_MODELS
+  python/                 # ibkr-bridge-types PyPI package
+    pyproject.toml
+    ibkr_bridge_types/
+      __init__.py         # Re-exports all public types
+      models.py           # All models + type aliases (generated from bridge_models.py)
 ```

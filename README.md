@@ -130,6 +130,72 @@ GET /health
 
 Returns `{"connected": true, "tradingMode": "paper"}`. No auth required.
 
+#### WebSocket event stream
+
+```
+GET /ibkr/ws/events
+```
+
+Streams real-time trade execution events over WebSocket. Requires `Authorization: Bearer <API_TOKEN>` (sent as HTTP header during the upgrade handshake).
+
+Query parameters:
+- `last_seq` — replay buffered events with `seq >` this value (default: `0`)
+
+Events are JSON envelopes with a monotonic `seq` number. Fields mirror `ib_async` 2.1.0 exactly:
+
+```json
+{
+  "type": "commissionReportEvent",
+  "seq": 42,
+  "timestamp": "2026-04-11T10:30:00+00:00",
+  "fill": {
+    "contract": {
+      "secType": "STK",
+      "conId": 265598,
+      "symbol": "AAPL",
+      "exchange": "SMART",
+      "primaryExchange": "NASDAQ",
+      "currency": "USD",
+      "..."
+    },
+    "execution": {
+      "execId": "0001f4e8.67890abc.01.01",
+      "time": "2026-04-11T10:30:00+00:00",
+      "acctNumber": "UXXXXXXX",
+      "exchange": "ISLAND",
+      "side": "BOT",
+      "shares": 10.0,
+      "price": 149.95,
+      "permId": 684196618,
+      "cumQty": 10.0,
+      "avgPrice": 149.95,
+      "..."
+    },
+    "commissionReport": {
+      "execId": "0001f4e8.67890abc.01.01",
+      "commission": 1.0,
+      "currency": "USD",
+      "realizedPNL": 0.0,
+      "yield_": 0.0,
+      "yieldRedemptionDate": 0
+    },
+    "time": "2026-04-11T10:30:00+00:00"
+  }
+}
+```
+
+Event types:
+- `execDetailsEvent` — fill executed (preliminary, may lack commission)
+- `commissionReportEvent` — fill with commission data (confirmed)
+- `connected` — bridge connected to IB Gateway
+- `disconnected` — bridge lost IB Gateway connection
+
+Features:
+- **Replay on reconnect** — pass `?last_seq=N` to receive buffered events since that sequence number
+- **Ring buffer** — last 500 events buffered server-side (configurable via `WS_BUFFER_SIZE`)
+- **Up to 10 simultaneous subscribers** (configurable via `WS_MAX_SUBSCRIBERS`)
+- **Zombie detection** — server sends WebSocket pings every 30s (configurable via `WS_HEARTBEAT_INTERVAL`)
+
 #### Gateway control (VNC domain)
 
 ```
@@ -263,6 +329,9 @@ All configuration is via environment variables in `.env`:
 | `DROPLET_SIZE`        | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
 | `TIME_ZONE`           | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
 | `VNC_BASIC_AUTH_USER` | No       | `admin`              | Username for VNC domain basic auth                                                                    |
+| `WS_BUFFER_SIZE`      | No       | `500`                | Ring buffer size for WebSocket event replay on client reconnect                                       |
+| `WS_MAX_SUBSCRIBERS`  | No       | `10`                 | Maximum simultaneous WebSocket subscribers                                                            |
+| `WS_HEARTBEAT_INTERVAL` | No    | `30`                 | WebSocket ping interval in seconds for zombie connection detection                                    |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -436,11 +505,11 @@ make e2e-down     # stop and remove test stack
 
 ## TypeScript Types
 
-API types are available as a TypeScript package under `types/`:
+API types are available as a TypeScript package under `types/typescript/`:
 
 ```
-types/
-  index.d.ts                 # Barrel: exports IbkrBridge namespace
+types/typescript/
+  index.d.ts                 # Barrel: exports IbkrBridgeHttp namespace
   package.json               # @tradegist/ibkr-bridge-types
   http/
     index.d.ts               # Re-exports all types
@@ -451,15 +520,15 @@ types/
 Usage:
 
 ```typescript
-import { IbkrBridge } from "@tradegist/ibkr-bridge-types";
+import { IbkrBridgeHttp } from "@tradegist/ibkr-bridge-types";
 
-const req: IbkrBridge.PlaceOrderPayload = {
+const req: IbkrBridgeHttp.PlaceOrderPayload = {
   contract: { symbol: "AAPL", secType: "STK", exchange: "SMART", currency: "USD" },
   order: { action: "BUY", totalQuantity: 10, orderType: "MKT" },
 };
 
-const resp: IbkrBridge.PlaceOrderResponse = ...;
-const trades: IbkrBridge.ListTradesResponse = ...;
+const resp: IbkrBridgeHttp.PlaceOrderResponse = ...;
+const trades: IbkrBridgeHttp.ListTradesResponse = ...;
 ```
 
 Types are auto-generated from the Pydantic models via `make types`. The package is not yet published to npm.
@@ -524,12 +593,15 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │   ├── outputs.tf                 # Droplet IP, VNC URL, Site URL, SSH key
 │   └── cloud-init.sh             # Docker install + project directory
 ├── schema_gen.py                  # JSON Schema generator (Pydantic → TS types)
-└── types/                         # @tradegist/ibkr-bridge-types npm package
-    ├── index.d.ts                 # Barrel: exports IbkrBridge namespace
-    ├── package.json
-    └── http/                      # IbkrBridge namespace
-        ├── index.d.ts
-        └── types.d.ts             # Generated from bridge_models.py SCHEMA_MODELS
+└── types/
+    ├── typescript/                # @tradegist/ibkr-bridge-types npm package
+    │   ├── index.d.ts             # Barrel: exports IbkrBridgeHttp namespace
+    │   ├── package.json
+    │   └── http/                  # IbkrBridgeHttp namespace
+    │       ├── index.d.ts
+    │       └── types.d.ts         # Generated from bridge_models.py SCHEMA_MODELS
+    └── python/                    # ibkr-bridge-types PyPI package
+        └── ibkr_bridge_types/
 ```
 
 ## Security
