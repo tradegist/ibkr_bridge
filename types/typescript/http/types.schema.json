@@ -1,0 +1,733 @@
+{
+  "$defs": {
+    "ContractPayload": {
+      "additionalProperties": false,
+      "description": "Contract fields for identifying the instrument (mirrors ib_async.Contract).",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "secType": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SecType"
+            }
+          ],
+          "default": "STK"
+        },
+        "exchange": {
+          "default": "SMART",
+          "type": "string"
+        },
+        "currency": {
+          "default": "USD",
+          "type": "string"
+        },
+        "primaryExchange": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol"
+      ],
+      "title": "ContractPayload",
+      "type": "object"
+    },
+    "OrderPayload": {
+      "additionalProperties": false,
+      "description": "Order fields for specifying the trade (mirrors ib_async.Order).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "totalQuantity": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "orderType": {
+          "$ref": "#/$defs/OrderType"
+        },
+        "lmtPrice": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tif": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/TimeInForce"
+            }
+          ],
+          "default": "DAY"
+        },
+        "outsideRth": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "totalQuantity",
+        "orderType"
+      ],
+      "title": "OrderPayload",
+      "type": "object"
+    },
+    "PlaceOrderPayload": {
+      "additionalProperties": false,
+      "description": "Top-level request body for POST /ibkr/order.",
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/ContractPayload"
+        },
+        "order": {
+          "$ref": "#/$defs/OrderPayload"
+        }
+      },
+      "required": [
+        "contract",
+        "order"
+      ],
+      "title": "PlaceOrderPayload",
+      "type": "object"
+    },
+    "PlaceOrderResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "integer"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "totalQuantity": {
+          "type": "number"
+        },
+        "orderType": {
+          "$ref": "#/$defs/OrderType"
+        },
+        "lmtPrice": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status",
+        "orderId",
+        "action",
+        "symbol",
+        "totalQuantity",
+        "orderType"
+      ],
+      "title": "PlaceOrderResponse",
+      "type": "object"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "connected": {
+          "type": "boolean"
+        },
+        "tradingMode": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connected",
+        "tradingMode"
+      ],
+      "title": "HealthResponse",
+      "type": "object"
+    },
+    "FillDetail": {
+      "additionalProperties": false,
+      "description": "Single execution fill within a trade.",
+      "properties": {
+        "execId": {
+          "type": "string"
+        },
+        "time": {
+          "type": "string"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/ExecSide"
+        },
+        "shares": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "commission": {
+          "type": "number"
+        },
+        "commissionCurrency": {
+          "type": "string"
+        },
+        "realizedPNL": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "execId",
+        "time",
+        "exchange",
+        "side",
+        "shares",
+        "price",
+        "commission",
+        "commissionCurrency",
+        "realizedPNL"
+      ],
+      "title": "FillDetail",
+      "type": "object"
+    },
+    "TradeDetail": {
+      "additionalProperties": false,
+      "description": "A trade with its order info, status, and fills.",
+      "properties": {
+        "orderId": {
+          "type": "integer"
+        },
+        "action": {
+          "type": "string"
+        },
+        "totalQuantity": {
+          "type": "number"
+        },
+        "orderType": {
+          "type": "string"
+        },
+        "lmtPrice": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tif": {
+          "$ref": "#/$defs/TimeInForce"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "secType": {
+          "$ref": "#/$defs/SecType"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "filled": {
+          "type": "number"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "avgFillPrice": {
+          "type": "number"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/FillDetail"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "orderId",
+        "action",
+        "totalQuantity",
+        "orderType",
+        "tif",
+        "symbol",
+        "secType",
+        "exchange",
+        "currency",
+        "status",
+        "filled",
+        "remaining",
+        "avgFillPrice",
+        "fills"
+      ],
+      "title": "TradeDetail",
+      "type": "object"
+    },
+    "ListTradesResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "trades": {
+          "items": {
+            "$ref": "#/$defs/TradeDetail"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "trades"
+      ],
+      "title": "ListTradesResponse",
+      "type": "object"
+    },
+    "WsComboLeg": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0).",
+      "properties": {
+        "conId": {
+          "type": "integer"
+        },
+        "ratio": {
+          "type": "integer"
+        },
+        "action": {
+          "type": "string"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "openClose": {
+          "type": "integer"
+        },
+        "shortSaleSlot": {
+          "type": "integer"
+        },
+        "designatedLocation": {
+          "type": "string"
+        },
+        "exemptCode": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "conId",
+        "ratio",
+        "action",
+        "exchange",
+        "openClose",
+        "shortSaleSlot",
+        "designatedLocation",
+        "exemptCode"
+      ],
+      "title": "WsComboLeg",
+      "type": "object"
+    },
+    "WsCommissionReport": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.objects.CommissionReport (ib_async 2.1.0).",
+      "properties": {
+        "execId": {
+          "type": "string"
+        },
+        "commission": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "realizedPNL": {
+          "type": "number"
+        },
+        "yield_": {
+          "type": "number"
+        },
+        "yieldRedemptionDate": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "execId",
+        "commission",
+        "currency",
+        "realizedPNL",
+        "yield_",
+        "yieldRedemptionDate"
+      ],
+      "title": "WsCommissionReport",
+      "type": "object"
+    },
+    "WsContract": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.contract.Contract (ib_async 2.1.0).",
+      "properties": {
+        "secType": {
+          "type": "string"
+        },
+        "conId": {
+          "type": "integer"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "lastTradeDateOrContractMonth": {
+          "type": "string"
+        },
+        "strike": {
+          "type": "number"
+        },
+        "right": {
+          "type": "string"
+        },
+        "multiplier": {
+          "type": "string"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "primaryExchange": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "localSymbol": {
+          "type": "string"
+        },
+        "tradingClass": {
+          "type": "string"
+        },
+        "includeExpired": {
+          "type": "boolean"
+        },
+        "secIdType": {
+          "type": "string"
+        },
+        "secId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "issuerId": {
+          "type": "string"
+        },
+        "comboLegsDescrip": {
+          "type": "string"
+        },
+        "comboLegs": {
+          "items": {
+            "$ref": "#/$defs/WsComboLeg"
+          },
+          "type": "array"
+        },
+        "deltaNeutralContract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WsDeltaNeutralContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "secType",
+        "conId",
+        "symbol",
+        "lastTradeDateOrContractMonth",
+        "strike",
+        "right",
+        "multiplier",
+        "exchange",
+        "primaryExchange",
+        "currency",
+        "localSymbol",
+        "tradingClass",
+        "includeExpired",
+        "secIdType",
+        "secId",
+        "description",
+        "issuerId",
+        "comboLegsDescrip"
+      ],
+      "title": "WsContract",
+      "type": "object"
+    },
+    "WsDeltaNeutralContract": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.contract.DeltaNeutralContract (ib_async 2.1.0).",
+      "properties": {
+        "conId": {
+          "type": "integer"
+        },
+        "delta": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "conId",
+        "delta",
+        "price"
+      ],
+      "title": "WsDeltaNeutralContract",
+      "type": "object"
+    },
+    "WsExecution": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.objects.Execution (ib_async 2.1.0).",
+      "properties": {
+        "execId": {
+          "type": "string"
+        },
+        "time": {
+          "type": "string"
+        },
+        "acctNumber": {
+          "type": "string"
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string"
+        },
+        "shares": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "permId": {
+          "type": "integer"
+        },
+        "clientId": {
+          "type": "integer"
+        },
+        "orderId": {
+          "type": "integer"
+        },
+        "liquidation": {
+          "type": "integer"
+        },
+        "cumQty": {
+          "type": "number"
+        },
+        "avgPrice": {
+          "type": "number"
+        },
+        "orderRef": {
+          "type": "string"
+        },
+        "evRule": {
+          "type": "string"
+        },
+        "evMultiplier": {
+          "type": "number"
+        },
+        "modelCode": {
+          "type": "string"
+        },
+        "lastLiquidity": {
+          "type": "integer"
+        },
+        "pendingPriceRevision": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "execId",
+        "time",
+        "acctNumber",
+        "exchange",
+        "side",
+        "shares",
+        "price",
+        "permId",
+        "clientId",
+        "orderId",
+        "liquidation",
+        "cumQty",
+        "avgPrice",
+        "orderRef",
+        "evRule",
+        "evMultiplier",
+        "modelCode",
+        "lastLiquidity",
+        "pendingPriceRevision"
+      ],
+      "title": "WsExecution",
+      "type": "object"
+    },
+    "WsFill": {
+      "additionalProperties": false,
+      "description": "Mirrors ib_async.objects.Fill NamedTuple (ib_async 2.1.0).",
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/WsContract"
+        },
+        "execution": {
+          "$ref": "#/$defs/WsExecution"
+        },
+        "commissionReport": {
+          "$ref": "#/$defs/WsCommissionReport"
+        },
+        "time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "execution",
+        "commissionReport",
+        "time"
+      ],
+      "title": "WsFill",
+      "type": "object"
+    },
+    "WsEnvelope": {
+      "additionalProperties": false,
+      "description": "Top-level WebSocket message wrapper.",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/WsEventType"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "fill": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WsFill"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "timestamp"
+      ],
+      "title": "WsEnvelope",
+      "type": "object"
+    },
+    "Action": {
+      "enum": [
+        "BUY",
+        "SELL"
+      ],
+      "type": "string"
+    },
+    "ExecSide": {
+      "enum": [
+        "BOT",
+        "SLD"
+      ],
+      "type": "string"
+    },
+    "OrderType": {
+      "enum": [
+        "LMT",
+        "MKT"
+      ],
+      "type": "string"
+    },
+    "SecType": {
+      "enum": [
+        "BAG",
+        "BOND",
+        "CASH",
+        "CFD",
+        "CMDTY",
+        "CRYPTO",
+        "EVENT",
+        "FOP",
+        "FUND",
+        "FUT",
+        "IND",
+        "NEWS",
+        "OPT",
+        "STK",
+        "WAR"
+      ],
+      "type": "string"
+    },
+    "TimeInForce": {
+      "enum": [
+        "DAY",
+        "DTC",
+        "FOK",
+        "GTC",
+        "GTD",
+        "IOC",
+        "OPG"
+      ],
+      "type": "string"
+    },
+    "WsStatusType": {
+      "enum": [
+        "connected",
+        "disconnected"
+      ],
+      "type": "string"
+    },
+    "WsEventType": {
+      "enum": [
+        "commissionReportEvent",
+        "connected",
+        "disconnected",
+        "execDetailsEvent"
+      ],
+      "type": "string"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/PlaceOrderPayload"
+    },
+    {
+      "$ref": "#/$defs/PlaceOrderResponse"
+    },
+    {
+      "$ref": "#/$defs/HealthResponse"
+    },
+    {
+      "$ref": "#/$defs/ListTradesResponse"
+    },
+    {
+      "$ref": "#/$defs/WsEnvelope"
+    }
+  ]
+}
