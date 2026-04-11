@@ -8,6 +8,7 @@ Tests verify:
 """
 
 import asyncio
+from typing import Any
 
 import aiohttp
 import httpx
@@ -19,7 +20,7 @@ API_TOKEN = "test-token"
 AUTH_HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 
 
-def _place_market_order(api: httpx.Client) -> dict[str, object]:
+def _place_market_order(api: httpx.Client) -> dict[str, Any]:
     """Place a small market BUY order and return the response body."""
     resp = api.post("/ibkr/order", json={
         "contract": {
@@ -35,7 +36,8 @@ def _place_market_order(api: httpx.Client) -> dict[str, object]:
         },
     })
     assert resp.status_code == 200, f"Order failed: {resp.text}"
-    return resp.json()
+    body: dict[str, Any] = resp.json()
+    return body
 
 
 class TestWsAuth:
@@ -76,8 +78,8 @@ class TestWsEventDelivery:
 
         Skips when no execution events arrive (market closed / weekends).
         """
-        async def _run() -> list[dict[str, object]]:
-            events: list[dict[str, object]] = []
+        async def _run() -> list[dict[str, Any]]:
+            events: list[dict[str, Any]] = []
             async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
                 _place_market_order(api)
 
@@ -115,17 +117,19 @@ class TestWsEventDelivery:
         assert "fill" in event
 
         # Validate fill structure
-        fill = event["fill"]
+        fill: dict[str, Any] = event["fill"]
         assert "contract" in fill
         assert "execution" in fill
-        assert fill["contract"]["symbol"] == "AAPL"
-        assert fill["execution"]["side"] in ("BOT", "SLD")
-        assert fill["execution"]["shares"] > 0
+        contract: dict[str, Any] = fill["contract"]
+        execution: dict[str, Any] = fill["execution"]
+        assert contract["symbol"] == "AAPL"
+        assert execution["side"] in ("BOT", "SLD")
+        assert execution["shares"] > 0
 
     def test_replay_returns_buffered_events(self, api: httpx.Client) -> None:
         """After placing an order, reconnecting with ?last_seq=0 should replay."""
-        async def _run() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-            first_events: list[dict[str, object]] = []
+        async def _run() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            first_events: list[dict[str, Any]] = []
 
             async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
                 _place_market_order(api)
@@ -150,7 +154,7 @@ class TestWsEventDelivery:
                 )
 
             # Reconnect with last_seq=0 to replay all buffered events
-            replay_events: list[dict[str, object]] = []
+            replay_events: list[dict[str, Any]] = []
             async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
                 try:
                     while True:
@@ -177,12 +181,12 @@ class TestWsEventDelivery:
         assert len(replay_exec) > 0, "Replay did not include execDetailsEvent"
 
         # Sequence numbers should be monotonically increasing
-        seqs = [e["seq"] for e in replay_events]
+        seqs = [int(e["seq"]) for e in replay_events]
         assert seqs == sorted(seqs), f"Replay seqs not sorted: {seqs}"
 
     def test_replay_skips_already_seen(self, api: httpx.Client) -> None:
         """Reconnecting with last_seq=N should only return events with seq > N."""
-        async def _run() -> tuple[int, list[dict[str, object]]]:
+        async def _run() -> tuple[int, list[dict[str, Any]]]:
             # Step 1: get current max seq by connecting briefly
             current_max_seq = 0
             async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}?last_seq=0") as ws:
@@ -226,7 +230,7 @@ class TestWsEventDelivery:
                 )
 
             # Step 3: reconnect with last_seq = previous max
-            replay_events: list[dict[str, object]] = []
+            replay_events: list[dict[str, Any]] = []
             async with (
                 aiohttp.ClientSession(headers=AUTH_HEADERS) as session,
                 session.ws_connect(f"{WS_URL}?last_seq={current_max_seq}") as ws,
@@ -252,7 +256,7 @@ class TestWsEventDelivery:
 
         # All replayed events should have seq > the previous max
         for event in new_events:
-            assert event["seq"] > prev_seq, (
+            assert int(event["seq"]) > prev_seq, (
                 f"Replay returned event seq={event['seq']} "
                 f"which is <= last_seq={prev_seq}"
             )

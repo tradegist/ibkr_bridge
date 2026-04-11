@@ -5,7 +5,7 @@ import logging
 import os
 import uuid
 
-from aiohttp import web
+from aiohttp import WSMessage, web
 
 from bridge_routes.constants import hub_key, ws_heartbeat_key
 
@@ -66,7 +66,7 @@ async def handle_ws_events(request: web.Request) -> web.WebSocketResponse:
         # disconnect during a quiet period is detected immediately
         # instead of blocking forever on queue.get().
         queue_task: asyncio.Task[dict[str, object]] | None = None
-        ws_task: asyncio.Task[web.WSMessage] | None = None
+        ws_task: asyncio.Task[WSMessage] | None = None
         try:
             while not ws.closed:
                 if queue_task is None:
