@@ -243,6 +243,12 @@
         }
       }
 
+      // In local dev (port 15100), gateway-controller runs on port 15102.
+      // In production, Caddy rewrites /gateway/* to /cgi-bin/* on the controller.
+      var GATEWAY_URL = window.location.port === "15100"
+        ? "http://" + window.location.hostname + ":15102/cgi-bin/start-gateway"
+        : "/gateway/cgi-bin/start-gateway";
+
       function showStartGateway() {
         var bar = document.getElementById("noVNC_status_bar");
         bar.className = STATUS_CLASSES["warn"];
@@ -263,7 +269,7 @@
           btn.textContent = "Starting…";
           btn.className =
             "px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded opacity-60";
-          fetch("/gateway/cgi-bin/start-gateway", { method: "POST" })
+          fetch(GATEWAY_URL, { method: "POST" })
             .then(function (r) {
               return r.json();
             })

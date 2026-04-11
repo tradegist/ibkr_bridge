@@ -1,7 +1,11 @@
 #!/bin/sh
 # CGI script: starts the ib-gateway container via Docker socket
 
-printf "Content-Type: application/json\r\n\r\n"
+if [ "$ENV" = "local" ]; then
+  printf "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
+else
+  printf "Content-Type: application/json\r\n\r\n"
+fi
 
 if [ "$REQUEST_METHOD" != "POST" ]; then
   printf '{"error":"method not allowed"}'

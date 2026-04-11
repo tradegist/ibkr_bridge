@@ -17,6 +17,12 @@ services:
       - ./services/bridge/client:/app/client:ro
       - ./services/bridge/bridge_routes:/app/bridge_routes:ro
 
+  gateway-controller:
+    ports:
+      - "15102:9000"
+    environment:
+      ENV: local
+
   caddy:
     profiles: ["disabled"]
 
