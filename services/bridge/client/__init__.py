@@ -50,6 +50,7 @@ class IBClient:
     def __init__(self) -> None:
         self.ib = IB()
         self._retry_delay = INITIAL_RETRY_DELAY
+        self._connect_lock = asyncio.Lock()
         self._background_tasks: set[asyncio.Task[None]] = set()
         self.orders = OrdersNamespace(self.ib)
         self.trades = TradesNamespace(self.ib)
@@ -59,25 +60,35 @@ class IBClient:
         return self.ib.isConnected()
 
     async def connect(self) -> None:
-        """Connect to IB Gateway with exponential backoff retry."""
-        ib_host = get_ib_host()
-        ib_port = get_ib_port()
-        while True:
-            try:
-                log.info("Connecting to IB Gateway at %s:%d ...", ib_host, ib_port)
-                await self.ib.connectAsync(
-                    ib_host, ib_port, clientId=CLIENT_ID, timeout=20
-                )
-                log.info("Connected — %d account(s)", len(self.ib.managedAccounts()))
-                self._retry_delay = INITIAL_RETRY_DELAY
+        """Connect to IB Gateway with exponential backoff retry.
+
+        Serialized via _connect_lock so concurrent callers (watchdog,
+        _reconnect) await the in-flight attempt instead of starting a
+        parallel retry loop.
+        """
+        async with self._connect_lock:
+            if self.is_connected:
                 return
-            except Exception as exc:
-                log.warning(
-                    "Connection failed: %s — retrying in %ds",
-                    exc, self._retry_delay,
-                )
-                await asyncio.sleep(self._retry_delay)
-                self._retry_delay = min(self._retry_delay * 2, MAX_RETRY_DELAY)
+            ib_host = get_ib_host()
+            ib_port = get_ib_port()
+            while True:
+                try:
+                    log.info("Connecting to IB Gateway at %s:%d ...", ib_host, ib_port)
+                    await self.ib.connectAsync(
+                        ib_host, ib_port, clientId=CLIENT_ID, timeout=20
+                    )
+                    log.info(
+                        "Connected — %d account(s)", len(self.ib.managedAccounts())
+                    )
+                    self._retry_delay = INITIAL_RETRY_DELAY
+                    return
+                except Exception as exc:
+                    log.warning(
+                        "Connection failed: %s — retrying in %ds",
+                        exc, self._retry_delay,
+                    )
+                    await asyncio.sleep(self._retry_delay)
+                    self._retry_delay = min(self._retry_delay * 2, MAX_RETRY_DELAY)
 
     def on_disconnect(self) -> None:
         log.warning("Disconnected from IB Gateway — will reconnect")

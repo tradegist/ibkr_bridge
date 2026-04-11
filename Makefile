@@ -4,6 +4,7 @@ PROJECT = ibkr-bridge
 PYTHON ?= .venv/bin/python3
 E2E_ENV = .env.test
 E2E_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test --env-file $(E2E_ENV)
+E2E_COMPOSE_DOWN = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test
 LOCAL_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.local.yml
 CLI_BRIDGE_ENV = $(if $(ENV),BRIDGE_ENV=$(ENV))
 
@@ -88,7 +89,7 @@ e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)
 	fi
 
 e2e-down: ## Stop and remove E2E test stack
-	$(E2E_COMPOSE) down
+	$(E2E_COMPOSE_DOWN) down
 
 e2e-run: ## Run E2E tests (stack must be up)
 	@$(E2E_COMPOSE) restart bridge > /dev/null 2>&1 && sleep 3
