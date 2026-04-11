@@ -69,11 +69,11 @@ class EventHub:
     def broadcast(self, event: dict[str, object]) -> None:
         """Assign a sequence number and push to buffer + all subscribers."""
         self._seq += 1
-        event["seq"] = self._seq
-        self._buffer.append(event)
+        buffered_event = {**event, "seq": self._seq}
+        self._buffer.append(buffered_event)
         for sub_id, queue in self._subscribers.items():
             try:
-                queue.put_nowait(event)
+                queue.put_nowait(dict(buffered_event))
             except asyncio.QueueFull:
                 log.warning(
                     "Subscriber %s queue full — dropping event seq=%d",
