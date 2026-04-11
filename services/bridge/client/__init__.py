@@ -6,6 +6,7 @@ import os
 
 from ib_async import IB
 
+from client.event_hub import EventHub
 from client.orders import OrdersNamespace
 from client.trades import TradesNamespace
 
@@ -47,8 +48,9 @@ def get_ib_port() -> int:
 class IBClient:
     """Thin wrapper around ib_async.IB for connection management."""
 
-    def __init__(self) -> None:
+    def __init__(self, hub: EventHub) -> None:
         self.ib = IB()
+        self.hub = hub
         self._retry_delay = INITIAL_RETRY_DELAY
         self._connect_lock = asyncio.Lock()
         self._background_tasks: set[asyncio.Task[None]] = set()
