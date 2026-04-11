@@ -40,7 +40,7 @@ async def amain() -> None:
     log.info("IBKR Bridge starting (mode=%s)", get_trading_mode())
 
     # Start HTTP server first so /health is reachable while connecting
-    app = create_routes(client)
+    app = create_routes(client, hub)
     runner = web.AppRunner(app)
     await runner.setup()
 

@@ -6,6 +6,10 @@ handle /ibkr/trades {
     reverse_proxy bridge:5000
 }
 
+handle /ibkr/ws/events {
+    reverse_proxy bridge:5000
+}
+
 handle /health {
     reverse_proxy bridge:5000
 }

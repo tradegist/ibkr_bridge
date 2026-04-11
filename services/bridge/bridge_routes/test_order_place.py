@@ -7,6 +7,7 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 
 from bridge_routes import create_routes
+from client.event_hub import EventHub
 
 # Set API_TOKEN in env so auth middleware passes with "test-token".
 _patcher = patch.dict(os.environ, {"API_TOKEN": "test-token"})
@@ -42,7 +43,7 @@ class TestOrderValidation(AioHTTPTestCase):
         }
         mock_client.orders.place = AsyncMock(return_value=mock_response)
         self.mock_client = mock_client
-        return create_routes(mock_client)
+        return create_routes(mock_client, EventHub(buffer_size=10, max_subscribers=2))
 
     async def test_missing_symbol_returns_400(self) -> None:
         resp = await self.client.post(
@@ -134,7 +135,7 @@ class TestOrderValidation(AioHTTPTestCase):
 
 class TestOrderNotConnected(AioHTTPTestCase):
     async def get_application(self) -> web.Application:
-        return create_routes(_make_client(connected=False))
+        return create_routes(_make_client(connected=False), EventHub(buffer_size=10, max_subscribers=2))
 
     async def test_not_connected_returns_503(self) -> None:
         resp = await self.client.post(
@@ -152,7 +153,7 @@ class TestOrderBusinessErrors(AioHTTPTestCase):
     async def get_application(self) -> web.Application:
         mock_client = _make_client()
         self.mock_client = mock_client
-        return create_routes(mock_client)
+        return create_routes(mock_client, EventHub(buffer_size=10, max_subscribers=2))
 
     async def test_value_error_returns_400(self) -> None:
         self.mock_client.orders.place = AsyncMock(
