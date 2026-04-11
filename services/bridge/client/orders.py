@@ -73,7 +73,7 @@ class OrdersNamespace:
             raise RuntimeError(f"Order placement failed: {exc}") from exc
 
         return PlaceOrderResponse(
-            status="PendingSubmit",
+            status=trade.orderStatus.status,
             orderId=trade.order.permId,
             action=order_req.action,
             symbol=contract_req.symbol,
