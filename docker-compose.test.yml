@@ -50,3 +50,7 @@ services:
     profiles: ["disabled"]
   gateway-controller:
     profiles: ["disabled"]
+
+networks:
+  default:
+    name: ibkr-bridge-test

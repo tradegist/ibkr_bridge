@@ -4,7 +4,7 @@ PROJECT = ibkr-bridge
 PYTHON ?= .venv/bin/python3
 E2E_ENV = .env.test
 E2E_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test --env-file $(E2E_ENV)
-E2E_COMPOSE_DOWN = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test
+E2E_COMPOSE_DOWN = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test --env-file $(E2E_ENV)
 LOCAL_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.local.yml
 CLI_BRIDGE_ENV = $(if $(ENV),BRIDGE_ENV=$(ENV))
 
