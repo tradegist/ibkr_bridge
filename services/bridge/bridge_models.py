@@ -141,6 +141,13 @@ class ListTradesResponse(BaseModel):
 # ── WebSocket event streaming ────────────────────────────────────────
 # Models mirror ib_async 2.1.0 dataclass fields exactly (same names,
 # same nesting).  When bumping ib_async, update these models to match.
+#
+# These models use ``extra="allow"`` (NOT ``extra="forbid"``) because
+# they mirror an external upstream (ib_async / IBKR) that can add fields
+# without notice.  Unknown fields are preserved in ``model_extra`` so
+# downstream consumers can still observe them (and they flow through to
+# ``Fill.raw`` in broker_relay).  Required field removal still fails
+# validation — only unknown additions are tolerated.
 
 WsEventType = Literal[
     "execDetailsEvent",
@@ -153,7 +160,7 @@ WsEventType = Literal[
 class WsComboLeg(BaseModel):
     """Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     conId: int
     ratio: int
@@ -168,7 +175,7 @@ class WsComboLeg(BaseModel):
 class WsDeltaNeutralContract(BaseModel):
     """Mirrors ib_async.contract.DeltaNeutralContract (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     conId: int
     delta: float
@@ -178,7 +185,7 @@ class WsDeltaNeutralContract(BaseModel):
 class WsContract(BaseModel):
     """Mirrors ib_async.contract.Contract (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     secType: str
     conId: int
@@ -205,7 +212,7 @@ class WsContract(BaseModel):
 class WsExecution(BaseModel):
     """Mirrors ib_async.objects.Execution (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     execId: str
     time: str
@@ -231,7 +238,7 @@ class WsExecution(BaseModel):
 class WsCommissionReport(BaseModel):
     """Mirrors ib_async.objects.CommissionReport (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     execId: str
     commission: float
@@ -244,7 +251,7 @@ class WsCommissionReport(BaseModel):
 class WsFill(BaseModel):
     """Mirrors ib_async.objects.Fill NamedTuple (ib_async 2.1.0)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     contract: WsContract
     execution: WsExecution
@@ -255,7 +262,7 @@ class WsFill(BaseModel):
 class WsEnvelope(BaseModel):
     """Top-level WebSocket message wrapper."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     type: WsEventType
     seq: int
