@@ -12,7 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast, overload
 
@@ -60,7 +60,7 @@ class CoreConfig:
     """Optional callback returning droplet size slug for resume.
     If None, defaults to 's-1vcpu-1gb'."""
 
-    route_prefixes: list[str] = []
+    route_prefixes: list[str] = field(default_factory=list)
     """Expected path prefixes for Caddy site snippets (e.g. ['/ibkr']).
     If set, deploy validates that all ``handle`` directives in
     ``infra/caddy/sites/*.caddy`` start with one of these prefixes."""
