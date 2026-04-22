@@ -129,6 +129,7 @@ logs: ## Stream service logs (S=service ENV=local)
 	if [ "$$env" = "local" ]; then \
 		$(LOCAL_COMPOSE) logs -f $(S); \
 	else \
+		[ -n "$$DROPLET_IP" ] || { echo "Error: DROPLET_IP not set — run 'make deploy' first"; exit 1; }; \
 		ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 			"cd /opt/$(PROJECT) && docker compose logs -f --tail=200 $(S)"; \
 	fi
@@ -140,14 +141,18 @@ stats: ## Show container resource usage
 	if [ "$$env" = "local" ]; then \
 		docker stats --no-stream $$($(LOCAL_COMPOSE) ps -q); \
 	else \
+		[ -n "$$DROPLET_IP" ] || { echo "Error: DROPLET_IP not set — run 'make deploy' first"; exit 1; }; \
 		ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 			"docker stats --no-stream"; \
 	fi
 
 gateway: ## Start IB Gateway container + show connection status
 	@. ./.env; . ./.env.droplet 2>/dev/null; \
+	[ -n "$$DROPLET_IP" ] || { echo "Error: DROPLET_IP not set — run 'make deploy' first"; exit 1; }; \
 	ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 		"cd /opt/$(PROJECT) && docker compose start ib-gateway && sleep 5 && curl -sf http://localhost:15101/health | python3 -m json.tool"
 
 ssh: ## SSH into droplet
-	@. ./.env; . ./.env.droplet 2>/dev/null; ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP
+	@. ./.env; . ./.env.droplet 2>/dev/null; \
+	[ -n "$$DROPLET_IP" ] || { echo "Error: DROPLET_IP not set — run 'make deploy' first"; exit 1; }; \
+	ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP
