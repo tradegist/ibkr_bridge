@@ -99,9 +99,9 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 - **`make setup`** creates the `.venv` (if missing), installs all dependencies (`requirements-dev.txt` + service requirements), and writes a `.pth` file.
 - **`ibkr-bridge.pth`** is created inside `.venv/lib/pythonX.Y/site-packages/` by `make setup`. It adds `services/bridge/` to `sys.path` so that `from bridge_models import ...`, `from client import ...`, and `from bridge_routes import ...` work everywhere (CLI, tests, scripts) without `sys.path` hacks or `PYTHONPATH`.
 - **`.venv/` is gitignored** — never commit it.
-- **`docker-compose.local.yml` adds bind mounts** that shadow the `COPY`'d files in the image with your local source tree (`:ro`). This means code changes are visible on container restart — no rebuild needed. `make local-up` builds the images once; after that, `make sync` (when `DEFAULT_CLI_BRIDGE_ENV=local`) just restarts containers.
-- **`make sync` respects `DEFAULT_CLI_BRIDGE_ENV`.** When set to `local`, `make sync` restarts the local compose stack. When `prod` (default), it runs the full CLI sync to the droplet. Override per-command with `ENV=local` or `ENV=prod`.
-- **`make logs` also respects `DEFAULT_CLI_BRIDGE_ENV`.** `make logs S=bridge` streams local container logs when local, droplet logs when prod.
+- **`docker-compose.local.yml` adds bind mounts** that shadow the `COPY`'d files in the image with your local source tree (`:ro`). This means code changes are visible on container restart — no rebuild needed. `make local-up` builds the images once; after that, `make sync` (when `DEFAULT_CLI_ENV=local`) just restarts containers.
+- **`make sync` respects `DEFAULT_CLI_ENV`.** When set to `local`, `make sync` restarts the local compose stack. When `prod` (default), it runs the full CLI sync to the droplet. Override per-command with `ENV=local` or `ENV=prod`.
+- **`make logs` also respects `DEFAULT_CLI_ENV`.** `make logs S=bridge` streams local container logs when local, droplet logs when prod.
 
 ## Dependency Management
 

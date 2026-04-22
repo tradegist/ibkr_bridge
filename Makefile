@@ -34,7 +34,7 @@ resume: ## Restore droplet from snapshot
 
 sync: ## Push .env + restart (S=service B=1 LOCAL_FILES=1 ENV=local)
 	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
-	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
+	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
 		$(LOCAL_COMPOSE) restart; \
@@ -43,7 +43,10 @@ sync: ## Push .env + restart (S=service B=1 LOCAL_FILES=1 ENV=local)
 	fi
 
 order: ## Place a stock order (e.g. make order Q=2 SYM=TSLA T=MKT [P=] [CUR=EUR] [EX=LSE] [TIF=GTC] [RTH=1] [ENV=local])
-	$(CLI_BRIDGE_ENV) $(PYTHON) -m cli order $(Q) $(SYM) $(T) $(P) $(if $(CUR),--currency $(CUR)) $(if $(EX),--exchange $(EX)) $(if $(TIF),--tif $(TIF)) $(if $(RTH),--outside-rth)
+	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
+	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_ENV:-prod}}"; \
+	[ -n "$(ENV)" ] && env="$(ENV)"; \
+	BRIDGE_ENV=$$env $(PYTHON) -m cli order $(Q) $(SYM) $(T) $(P) $(if $(CUR),--currency $(CUR)) $(if $(EX),--exchange $(EX)) $(if $(TIF),--tif $(TIF)) $(if $(RTH),--outside-rth)
 
 types: ## Regenerate TypeScript + Python types from Pydantic models
 	PYTHONPATH=services/bridge $(PYTHON) schema_gen.py bridge_models > types/typescript/http/types.schema.json
@@ -125,7 +128,7 @@ local-down: ## Stop local stack
 
 logs: ## Stream service logs (S=service ENV=local)
 	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
-	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
+	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
 		$(LOCAL_COMPOSE) logs -f $(S); \
@@ -137,7 +140,7 @@ logs: ## Stream service logs (S=service ENV=local)
 
 stats: ## Show container resource usage
 	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
-	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
+	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
 		docker stats --no-stream $$($(LOCAL_COMPOSE) ps -q); \

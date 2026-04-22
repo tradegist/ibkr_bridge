@@ -374,7 +374,7 @@ Configuration is split into two files to separate container config from CLI-only
 
 ### `.env.droplet` — developer machine only (never pushed to server)
 
-The name reflects its origin (droplet infrastructure config) but its scope is broader: any var that belongs on the developer's machine rather than the server lives here — deployment credentials, SSH keys, and local CLI preferences like `DEFAULT_CLI_BRIDGE_ENV`.
+The name reflects its origin (droplet infrastructure config) but its scope is broader: any var that belongs on the developer's machine rather than the server lives here — deployment credentials, SSH keys, and local CLI preferences like `DEFAULT_CLI_ENV`.
 
 | Variable                 | Required | Default              | Description                                                                                           |
 | ------------------------ | -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -383,7 +383,7 @@ The name reflects its origin (droplet infrastructure config) but its scope is br
 | `DROPLET_IP`             | Yes\*    | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                          |
 | `SSH_KEY`                | No       | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
 | `DROPLET_SIZE`           | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
-| `DEFAULT_CLI_BRIDGE_ENV` | No       | `prod`               | Default CLI target: `prod` (HTTPS via `SITE_DOMAIN`) or `local` (localhost:15101)                     |
+| `DEFAULT_CLI_ENV` | No       | `prod`               | Default CLI target: `prod` (HTTPS via `SITE_DOMAIN`) or `local` (localhost:15101)                     |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -497,10 +497,10 @@ After changing a variable in `.env`, restart only the affected service:
 
 #### Local stack
 
-When `DEFAULT_CLI_BRIDGE_ENV=local` (or `ENV=local`), `make sync` restarts all containers. Bind mounts in `docker-compose.local.yml` ensure code changes are picked up automatically:
+When `DEFAULT_CLI_ENV=local` (or `ENV=local`), `make sync` restarts all containers. Bind mounts in `docker-compose.local.yml` ensure code changes are picked up automatically:
 
 ```bash
-make sync              # restart (when DEFAULT_CLI_BRIDGE_ENV=local)
+make sync              # restart (when DEFAULT_CLI_ENV=local)
 make sync ENV=local    # explicit override
 ```
 
