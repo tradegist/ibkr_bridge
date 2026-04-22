@@ -106,7 +106,7 @@ _CONFIG = CoreConfig(
     post_resume_message="Open https://{VNC_DOMAIN} to complete 2FA",
     compose_env_fn=_compose_env,
     size_selector_fn=_droplet_size,
-    route_prefix="/ibkr",
+    route_prefixes=["/ibkr"],
     pre_sync_hook=_pre_sync_hook,
 )
 
