@@ -15,6 +15,9 @@ setup: ## Create .venv and install all dependencies
 	@test -d .venv || python3 -m venv .venv
 	.venv/bin/pip install -r requirements-dev.txt -r services/bridge/requirements.txt
 	@echo "$(CURDIR)/services/bridge" > $$(find .venv/lib -name site-packages -type d)/$(PROJECT).pth
+	@for f in env env.droplet env.test; do \
+		[ -f ".$$f" ] || { cp env_examples/$$f .$$f && echo "Created .$$f from env_examples/$$f — fill in your values"; }; \
+	done
 
 deploy: ## Deploy infrastructure (Terraform + Docker)
 	$(PYTHON) -m cli deploy
@@ -29,7 +32,7 @@ resume: ## Restore droplet from snapshot
 	$(PYTHON) -m cli resume
 
 sync: ## Push .env + restart (S=service B=1 LOCAL_FILES=1 ENV=local)
-	@. ./.env 2>/dev/null; \
+	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
 	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
@@ -60,7 +63,7 @@ lint: ## Run ruff linter (use FIX=1 to auto-fix)
 	@if grep -rn '__all__' services/ types/ cli/ --include='*.py'; then echo "ERROR: __all__ is banned — use explicit re-exports"; exit 1; fi
 
 e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)
-	@test -f $(E2E_ENV) || { echo "ERROR: $(E2E_ENV) not found — copy .env.test.example to .env.test and fill in credentials"; exit 1; }
+	@test -f $(E2E_ENV) || { echo "ERROR: $(E2E_ENV) not found — copy env_examples/env.test to .env.test and fill in credentials"; exit 1; }
 	@if curl -sf http://localhost:15010/health | grep -q '"connected": true'; then \
 		echo "Stack already running and connected"; \
 	else \
@@ -100,7 +103,7 @@ e2e-run: ## Run E2E tests (stack must be up)
 	$(PYTHON) -m pytest services/bridge/tests/e2e/ -v
 
 e2e: ## Run E2E tests (starts/stops stack automatically)
-	@test -f $(E2E_ENV) || { echo "ERROR: $(E2E_ENV) not found — copy .env.test.example to .env.test and fill in credentials"; exit 1; }
+	@test -f $(E2E_ENV) || { echo "ERROR: $(E2E_ENV) not found — copy env_examples/env.test to .env.test and fill in credentials"; exit 1; }
 	@was_up=false; \
 	if curl -sf http://localhost:15010/health | grep -q '"connected": true'; then \
 		was_up=true; \
@@ -120,31 +123,31 @@ local-down: ## Stop local stack
 	$(LOCAL_COMPOSE) down
 
 logs: ## Stream service logs (S=service ENV=local)
-	@. ./.env 2>/dev/null; \
+	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
 	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
 		$(LOCAL_COMPOSE) logs -f $(S); \
 	else \
-		ssh -i $$(. ./.env; echo $${SSH_KEY:-~/.ssh/$(PROJECT)}) root@$$(. ./.env; echo $$DROPLET_IP) \
+		ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 			"cd /opt/$(PROJECT) && docker compose logs -f --tail=200 $(S)"; \
 	fi
 
 stats: ## Show container resource usage
-	@. ./.env 2>/dev/null; \
+	@. ./.env 2>/dev/null; . ./.env.droplet 2>/dev/null; \
 	env="$${BRIDGE_ENV:-$${DEFAULT_CLI_BRIDGE_ENV:-prod}}"; \
 	[ -n "$(ENV)" ] && env="$(ENV)"; \
 	if [ "$$env" = "local" ]; then \
 		docker stats --no-stream $$($(LOCAL_COMPOSE) ps -q); \
 	else \
-		ssh -i $$(. ./.env; echo $${SSH_KEY:-~/.ssh/$(PROJECT)}) root@$$(. ./.env; echo $$DROPLET_IP) \
+		ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 			"docker stats --no-stream"; \
 	fi
 
 gateway: ## Start IB Gateway container + show connection status
-	@. ./.env && \
+	@. ./.env; . ./.env.droplet 2>/dev/null; \
 	ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP \
 		"cd /opt/$(PROJECT) && docker compose start ib-gateway && sleep 5 && curl -sf http://localhost:15101/health | python3 -m json.tool"
 
 ssh: ## SSH into droplet
-	@. ./.env && ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP
+	@. ./.env; . ./.env.droplet 2>/dev/null; ssh -i $${SSH_KEY:-~/.ssh/$(PROJECT)} root@$$DROPLET_IP

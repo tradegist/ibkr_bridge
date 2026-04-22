@@ -1,30 +1,3 @@
-# ── Deployment ──────────────────────────────────────────────────────
-# Mode (REQUIRED): "standalone" or "shared"
-# standalone = own droplet via Terraform (requires DO_API_TOKEN)
-# shared     = deploy to an existing droplet (requires DROPLET_IP + SSH_KEY)
-DEPLOY_MODE=standalone
-
-# Droplet IP address (from Terraform output, or provided by host in shared mode)
-# DROPLET_IP=1.2.3.4
-
-# DigitalOcean API token (standalone mode only — can be removed after first deploy)
-# DO_API_TOKEN=your-digitalocean-api-token
-
-# SSH key for droplet access (shared mode only).
-# In standalone mode, Terraform generates and saves the key automatically
-# to ~/.ssh/ibkr-bridge — you never need to set this.
-# Only set this in shared mode, using the key provided by the droplet owner.
-# SSH_KEY=~/.ssh/shared-droplet
-
-# Override droplet size slug (standalone mode only).
-# When set, ignores JAVA_HEAP_SIZE for droplet sizing.
-# DROPLET_SIZE=s-1vcpu-1gb
-
-# Docker network name for cross-project communication on the same droplet.
-# Set to the same value across all projects that need to reach each other's containers.
-# Leave unset for isolated standalone deployment.
-# SHARED_NETWORK=relay-net
-
 # ── IB Gateway ─────────────────────────────────────────────────────
 TWS_USERID=
 TWS_PASSWORD=
@@ -48,7 +21,7 @@ SITE_DOMAIN=trade.example.com
 # Bearer token for /ibkr/* endpoints (generate with: openssl rand -hex 32)
 API_TOKEN=
 
-# ── WebSocket Event Streaming ─────────────────────────────────────
+# ── WebSocket Event Streaming ──────────────────────────────────────
 # Ring buffer size for event replay on client reconnect (default: 500)
 # WS_BUFFER_SIZE=500
 
@@ -59,12 +32,15 @@ API_TOKEN=
 # WS_HEARTBEAT_INTERVAL=30
 
 # ── General ────────────────────────────────────────────────────────
+# Sets the TZ for the IB Gateway process. Affects trading session hours,
+# order timestamps, and fill times reported by the broker.
 TIME_ZONE=America/New_York
 
 # Bridge service log level (default: INFO)
 # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
 # LOG_LEVEL=INFO
 
-# CLI default target environment: "prod" (HTTPS via SITE_DOMAIN) or "local" (localhost:15101)
-# Override per-command with: make order ENV=local
-DEFAULT_CLI_BRIDGE_ENV=prod
+# Docker network name for cross-project communication on the same droplet.
+# Set to the same value across all projects that need to reach each other's containers.
+# Leave unset for isolated standalone deployment.
+# SHARED_NETWORK=relay-net

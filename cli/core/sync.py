@@ -56,6 +56,7 @@ def _sync_local_files(droplet_ip, *, strict_host_check=True):
         "--filter", ":- .gitignore",
         "--exclude", ".git/",
         "--exclude", ".env",
+        "--exclude", ".env.droplet",
         "--exclude", ".env.test",
         "--exclude", ".deployed-sha",
         f"{cfg.project_dir}/",

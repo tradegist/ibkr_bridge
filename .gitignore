@@ -1,4 +1,5 @@
 .env
+.env.droplet
 .env.test
 .pause-state
 .venv/

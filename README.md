@@ -264,9 +264,9 @@ Five containers in a single Docker network:
 # 1. Clone and configure
 git clone https://github.com/tradegist/ibkr_bridge.git
 cd ibkr_bridge
-make setup        # Create .venv and install dependencies
-cp .env.example .env
-# Edit .env with your values
+make setup        # Create .venv, install dependencies, and copy env templates
+# Edit .env with your IB credentials, domains, and API token
+# Edit .env.droplet with your deployment config (DEPLOY_MODE, DO_API_TOKEN, etc.)
 
 # 2. Deploy
 make deploy
@@ -313,28 +313,41 @@ make sync ENV=local          # restart all containers
 
 ## Configuration
 
-All configuration is via environment variables in `.env`:
+Configuration is split into two files to separate container config from CLI-only deployment config.
 
-| Variable                | Required | Default              | Description                                                                                           |
-| ----------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `DEPLOY_MODE`           | Yes      | —                    | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                     |
-| `DO_API_TOKEN`          | Yes\*    | —                    | DigitalOcean API token (standalone mode only — can be removed after first deploy)                     |
-| `DROPLET_IP`            | Yes\*    | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                          |
-| `SSH_KEY`               | No       | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
-| `TWS_USERID`            | Yes      | —                    | IBKR username                                                                                         |
-| `TWS_PASSWORD`          | Yes      | —                    | IBKR password                                                                                         |
-| `VNC_SERVER_PASSWORD`   | Yes      | —                    | Password for VNC access to the Gateway GUI                                                            |
-| `TRADING_MODE`          | No       | `paper`              | `paper` or `live`                                                                                     |
-| `VNC_DOMAIN`            | Yes      | —                    | Domain for VNC access (e.g. `vnc.example.com`)                                                        |
-| `SITE_DOMAIN`           | Yes      | —                    | Domain for the REST API (e.g. `trade.example.com`)                                                    |
-| `API_TOKEN`             | Yes      | —                    | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                         |
-| `JAVA_HEAP_SIZE`        | No       | `768`                | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                    |
-| `DROPLET_SIZE`          | No       | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.       |
-| `TIME_ZONE`             | No       | `America/New_York`   | Timezone (tz database format)                                                                         |
-| `VNC_BASIC_AUTH_USER`   | No       | `admin`              | Username for VNC domain basic auth                                                                    |
-| `WS_BUFFER_SIZE`        | No       | `500`                | Ring buffer size for WebSocket event replay on client reconnect                                       |
-| `WS_MAX_SUBSCRIBERS`    | No       | `10`                 | Maximum simultaneous WebSocket subscribers                                                            |
-| `WS_HEARTBEAT_INTERVAL` | No       | `30`                 | WebSocket ping interval in seconds for zombie connection detection                                    |
+`make setup` copies the templates from `env_examples/` automatically on first run.
+
+### `.env` — app config (pushed to server, injected into containers)
+
+| Variable                | Required | Default            | Description                                                                      |
+| ----------------------- | -------- | ------------------ | -------------------------------------------------------------------------------- |
+| `TWS_USERID`            | Yes      | —                  | IBKR username                                                                    |
+| `TWS_PASSWORD`          | Yes      | —                  | IBKR password                                                                    |
+| `VNC_SERVER_PASSWORD`   | Yes      | —                  | Password for VNC access to the Gateway GUI                                       |
+| `TRADING_MODE`          | No       | `paper`            | `paper` or `live`                                                                |
+| `VNC_DOMAIN`            | Yes      | —                  | Domain for VNC access (e.g. `vnc.example.com`)                                   |
+| `SITE_DOMAIN`           | Yes      | —                  | Domain for the REST API (e.g. `trade.example.com`)                               |
+| `API_TOKEN`             | Yes      | —                  | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                    |
+| `JAVA_HEAP_SIZE`        | No       | `768`              | IB Gateway Java heap in MB. Determines auto-selected droplet size.               |
+| `TIME_ZONE`             | No       | `America/New_York` | Timezone (tz database format)                                                    |
+| `VNC_BASIC_AUTH_USER`   | No       | `admin`            | Username for VNC domain basic auth                                               |
+| `WS_BUFFER_SIZE`        | No       | `500`              | Ring buffer size for WebSocket event replay on client reconnect                  |
+| `WS_MAX_SUBSCRIBERS`    | No       | `10`               | Maximum simultaneous WebSocket subscribers                                       |
+| `WS_HEARTBEAT_INTERVAL` | No       | `30`               | WebSocket ping interval in seconds for zombie connection detection               |
+| `SHARED_NETWORK`        | No       | —                  | Docker network name for cross-project communication (e.g. `relay-net`)           |
+
+### `.env.droplet` — developer machine only (never pushed to server)
+
+The name reflects its origin (droplet infrastructure config) but its scope is broader: any var that belongs on the developer's machine rather than the server lives here — deployment credentials, SSH keys, and local CLI preferences like `DEFAULT_CLI_BRIDGE_ENV`.
+
+| Variable                 | Required  | Default              | Description                                                                                           |
+| ------------------------ | --------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DEPLOY_MODE`            | Yes       | —                    | `standalone` (own droplet via Terraform) or `shared` (deploy to existing droplet)                    |
+| `DO_API_TOKEN`           | Yes\*     | —                    | DigitalOcean API token (standalone mode only — can be removed after first deploy)                    |
+| `DROPLET_IP`             | Yes\*     | —                    | Droplet IP (from Terraform output in standalone; provided by host in shared)                         |
+| `SSH_KEY`                | No        | `~/.ssh/ibkr-bridge` | SSH key path — **shared mode only**. In standalone, Terraform auto-generates the key; never set this. |
+| `DROPLET_SIZE`           | No        | (auto)               | Override droplet size slug (e.g. `s-1vcpu-2gb`). When set, ignores `JAVA_HEAP_SIZE` for sizing.      |
+| `DEFAULT_CLI_BRIDGE_ENV` | No        | `prod`               | Default CLI target: `prod` (HTTPS via `SITE_DOMAIN`) or `local` (localhost:15101)                    |
 
 \* `DO_API_TOKEN` is required for standalone mode only (first deploy). `DROPLET_IP` is set automatically by Terraform output in standalone, or provided by the host in shared mode.
 
@@ -501,7 +514,7 @@ make e2e-run      # run E2E tests (stack must be up)
 make e2e-down     # stop and remove test stack
 ```
 
-- Credentials live in `.env.test` (gitignored). Template: `.env.test.example`.
+- Credentials live in `.env.test` (gitignored). Template: `env_examples/env.test`.
 - `make e2e-run` restarts the `bridge` container to pick up code changes from volume mounts.
 - Test bridge runs on `localhost:15010` with token `test-token`.
 - Gateway startup takes 30–120 seconds (Java + IBKR authentication). The `e2e-up` target waits up to 240 seconds and detects session conflicts (another TWS/Gateway using the same credentials).
@@ -551,7 +564,9 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │       ├── pause.py               # Snapshot + delete droplet
 │       ├── resume.py              # Restore from snapshot
 │       └── sync.py                # rsync files + pre-deploy checks + restart
-├── .env.example                   # Configuration template
+├── env_examples/                  # Configuration templates (make setup copies to .<name>)
+│   ├── env                        # App config template (.env)
+│   └── env.droplet                # CLI-only deployment config template (.env.droplet)
 ├── docker-compose.yml             # Container orchestration (5 services)
 ├── docker-compose.shared.yml      # Shared-mode overlay (disables Caddy, uses relay-net)
 ├── docker-compose.local.yml       # Local dev override (direct port access, no TLS)
