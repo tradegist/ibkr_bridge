@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import re
 import shutil
@@ -45,10 +46,14 @@ def _deploy_standalone():
 
     terraform("init", "-input=false")
 
-    # If DROPLET_IP is already set, a reserved IP from a previous deployment
-    # exists on the DO account. Re-import it so Terraform reuses it instead of
-    # creating a new one.
+    # If DROPLET_IP is set to a valid IP, a reserved IP from a previous
+    # deployment exists on the DO account. Re-import it so Terraform reuses
+    # it instead of creating a new one. Skip placeholder/invalid values.
     existing_ip = os.environ.get("DROPLET_IP", "").strip()
+    try:
+        ipaddress.ip_address(existing_ip)
+    except ValueError:
+        existing_ip = ""
     if existing_ip:
         state = terraform("state", "list", capture=True).stdout
         if "digitalocean_reserved_ip.bridge" not in state:
