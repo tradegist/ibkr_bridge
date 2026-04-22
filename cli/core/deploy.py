@@ -188,6 +188,8 @@ def _compute_vnc_basic_auth_hash() -> None:
     VNC_SERVER_PASSWORD is absent, or if htpasswd is unavailable — snippet
     templating will surface the missing var with a clear message if needed.
     """
+    if not os.environ.get("VNC_BASIC_AUTH_USER", "").strip():
+        os.environ["VNC_BASIC_AUTH_USER"] = "admin"
     if os.environ.get("VNC_BASIC_AUTH_HASH", "").strip():
         return
     password = os.environ.get("VNC_SERVER_PASSWORD", "").strip()
