@@ -1,5 +1,9 @@
 # IBKR Bridge — Project Guidelines
 
+## Sibling Project: relayport
+
+This project (`ibkr_bridge`) and `relayport` (`/Users/seb/Repositories/relayport`) share the same CLI deploy/destroy/sync infrastructure pattern. **Any change to `cli/core/deploy.py`, `cli/core/destroy.py`, or `cli/core/sync.py` in this project must be mirrored in the sibling project, and vice versa.** This includes: Terraform state management, reserved IP handling, rsync exclusions, env file push logic, and compose startup commands. When you modify CLI core logic here, explicitly remind the user to apply the equivalent change to `relayport`, and offer to do it in the same session.
+
 ## Code Quality (MANDATORY)
 
 - **Always apply best practices by default.** Do not ask the user whether to follow a best practice — just do it. Use idiomatic Python naming, file organization, and patterns. When there is a clearly better approach (naming, structure, error handling), use it directly and explain why.
@@ -18,7 +22,7 @@
 ## Security Rules (MANDATORY)
 
 - **No hardcoded credentials** — passwords, API tokens, secrets, and keys MUST come from environment variables (`.env` file or `TF_VAR_*`). Never write real values in source files.
-- **No hardcoded IPs** — use `DROPLET_IP` from `.env`. In documentation, use `1.2.3.4` as placeholder.
+- **No hardcoded IPs** — use `DROPLET_IP` from `.env.droplet`. In documentation, use `1.2.3.4` as placeholder.
 - **No hardcoded domains** — use `example.com` variants (`trade.example.com`, `vnc.example.com`) in docs and code. Actual domains are loaded at runtime via `SITE_DOMAIN` and `VNC_DOMAIN` env vars.
 - **No email addresses or personal info** — never write real names, emails, or account IDs in committed files.
 - **No logging of secrets or sensitive operational data** — never `log.info()` or `print()` tokens, passwords, or API keys. Log actions and outcomes, not credential values. Prefer logging symbols, statuses, and counts over full objects.
