@@ -180,7 +180,7 @@ def env(key: str, default: str | object = _UNSET) -> str:
 def require_env(*keys: str) -> None:
     missing = [k for k in keys if not os.environ.get(k)]
     if missing:
-        die(f"Missing required vars (not set in .env or .env.droplet): {', '.join(missing)}")
+        die(f"Missing required vars (not set in .env): {', '.join(missing)}")
 
 
 def deploy_mode() -> str:
