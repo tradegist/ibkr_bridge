@@ -4,6 +4,12 @@ services:
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/4004' 2>/dev/null || bash -c 'echo > /dev/tcp/localhost/4003' 2>/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
     environment:
       TWS_USERID: ${TWS_USERID:?Set TWS_USERID in .env}
       TWS_PASSWORD: ${TWS_PASSWORD:?Set TWS_PASSWORD in .env}
@@ -67,7 +73,8 @@ services:
       dockerfile: services/bridge/Dockerfile
     restart: always
     depends_on:
-      - ib-gateway
+      ib-gateway:
+        condition: service_healthy
     environment:
       IB_HOST: ib-gateway
       IB_LIVE_PORT: "4003"
