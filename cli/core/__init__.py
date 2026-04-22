@@ -172,7 +172,7 @@ def env(key: str, default: str | object = _UNSET) -> str:
     val = os.environ.get(key)
     if val is None:
         if default is _UNSET:
-            die(f"{key} is not set in .env")
+            die(f"{key} is not set in .env or .env.droplet")
         return cast(str, default)
     return val
 
@@ -180,13 +180,13 @@ def env(key: str, default: str | object = _UNSET) -> str:
 def require_env(*keys: str) -> None:
     missing = [k for k in keys if not os.environ.get(k)]
     if missing:
-        die(f"Missing required vars in .env: {', '.join(missing)}")
+        die(f"Missing required vars (not set in .env or .env.droplet): {', '.join(missing)}")
 
 
 def deploy_mode() -> str:
     mode = os.environ.get("DEPLOY_MODE", "").lower()
     if mode not in _VALID_DEPLOY_MODES:
-        die(f"DEPLOY_MODE must be set to 'standalone' or 'shared' in .env (got: {mode!r})")
+        die(f"DEPLOY_MODE must be set to 'standalone' or 'shared' in .env or .env.droplet (got: {mode!r})")
     return mode
 
 

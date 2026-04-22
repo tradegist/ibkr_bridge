@@ -55,7 +55,10 @@ def _deploy_standalone():
     except ValueError:
         existing_ip = ""
     if existing_ip:
-        state = terraform("state", "list", capture=True).stdout
+        try:
+            state = terraform("state", "list", capture=True).stdout
+        except subprocess.CalledProcessError:
+            state = ""
         if "digitalocean_reserved_ip.bridge" not in state:
             print(f"Importing existing reserved IP {existing_ip}...")
             terraform("import", "digitalocean_reserved_ip.bridge", existing_ip)
@@ -192,11 +195,18 @@ def _compute_vnc_basic_auth_hash() -> None:
         return
     if not shutil.which("htpasswd"):
         return
-    # htpasswd outputs "user:hash" — extract just the hash
-    result = subprocess.run(
-        ["htpasswd", "-nbB", "user", password],
-        capture_output=True, text=True, check=True,
-    )
+    # htpasswd outputs "user:hash" — extract just the hash.
+    # Password is passed via stdin (not argv) to avoid leaking it in process listings.
+    try:
+        result = subprocess.run(
+            ["htpasswd", "-nBi", "user"],
+            input=f"{password}\n",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        die("htpasswd failed to generate VNC auth hash — check that htpasswd is installed correctly.")
     os.environ["VNC_BASIC_AUTH_HASH"] = result.stdout.strip().split(":", 1)[1]
 
 

@@ -1,7 +1,7 @@
 import os
 import shutil
 
-from cli.core import config, die, env, load_env, terraform
+from cli.core import config, die, load_env, terraform
 
 
 def run(args):
@@ -14,10 +14,15 @@ def run(args):
     if not os.environ.get("DO_API_TOKEN"):
         die("DO_API_TOKEN is not set in .env.droplet")
 
-    # Terraform needs all required variables even for destroy.
-    # Resolve each var from env with a "placeholder" fallback.
+    # Export TF_VAR_* only when the source env var is present/non-empty.
+    # Leaving TF_VAR_* unset lets Terraform defaults and validation behave correctly.
     for tf_name, env_key in cfg.terraform_vars.items():
-        os.environ[f"TF_VAR_{tf_name}"] = env(env_key, "placeholder")
+        tf_var_key = f"TF_VAR_{tf_name}"
+        env_value = os.environ.get(env_key)
+        if env_value:
+            os.environ[tf_var_key] = env_value
+        else:
+            os.environ.pop(tf_var_key, None)
 
     # Capture the reserved IP before touching state, so we can remind the user.
     try:
