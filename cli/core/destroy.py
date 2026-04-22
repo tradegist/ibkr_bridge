@@ -12,7 +12,7 @@ def run(args):
     cfg = config()
 
     if not os.environ.get("DO_API_TOKEN"):
-        die("DO_API_TOKEN is not set in .env")
+        die("DO_API_TOKEN is not set in .env.droplet")
 
     # Terraform needs all required variables even for destroy.
     # Resolve each var from env with a "placeholder" fallback.
@@ -35,8 +35,11 @@ def run(args):
         if "digitalocean_reserved_ip.bridge" in state:
             print("Preserving reserved IP (removing from Terraform state)...")
             terraform("state", "rm", "digitalocean_reserved_ip.bridge")
-    except Exception:
-        pass
+    except Exception as exc:
+        print("WARNING: Failed to preserve the reserved IP in Terraform state before destroy.")
+        print(f"  Terraform state operation failed: {exc}")
+        print("  Continuing with destroy may allow Terraform to delete the reserved IP.")
+        print("  Check Terraform state/lock/permissions and intervene before running destroy again.")
 
     terraform("destroy", "-auto-approve", "-input=false")
 

@@ -113,7 +113,7 @@ def _template_caddy_snippet(src: Path) -> str:
     refs = pattern.findall(content)
     if not refs:
         return content
-    missing = [name for name, default in refs if not default and not os.environ.get(name)]
+    missing = [m.group(1) for m in pattern.finditer(content) if m.group(2) is None and not os.environ.get(m.group(1))]
     if missing:
         die(f"Caddy snippet {src.name} references undefined env vars: "
             f"{', '.join(missing)}\nSet them in .env before deploying.")
