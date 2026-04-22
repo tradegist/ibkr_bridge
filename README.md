@@ -11,7 +11,7 @@ Interacting with IBKR programmatically normally requires maintaining a persisten
 
 - **Place orders** via `POST /ibkr/order` with a JSON body
 - **List trades** via `GET /ibkr/trades` — session trades + completed orders, deduplicated
-- **Health check** via `GET /health` — see connection status and trading mode
+- **Health check** via `GET /ibkr/health` — see connection status and trading mode
 - **Automatic reconnection** — exponential backoff + watchdog, survives Gateway restarts
 - **Browser-based 2FA** — noVNC container provides browser access to the Gateway GUI for authentication
 - **Gateway lifecycle control** — restart the Gateway container from a web endpoint without SSH
@@ -126,10 +126,12 @@ Returns session trades + completed orders, deduplicated by permanent order ID:
 #### Health check
 
 ```
-GET /health
+GET /ibkr/health
 ```
 
 Returns `{"connected": true, "tradingMode": "paper"}`. No auth required.
+
+> **Note:** Caddy rewrites `/ibkr/health` to `/health` upstream. When accessing the bridge directly (e.g. `http://localhost:15101`), use `GET /health`.
 
 #### WebSocket event stream
 
@@ -276,7 +278,7 @@ make deploy
 # Open https://vnc.example.com in your browser and authenticate
 
 # 4. Verify connection
-curl -s https://trade.example.com/health | python3 -m json.tool
+curl -s https://trade.example.com/ibkr/health | python3 -m json.tool
 # Should show: {"connected": true, "tradingMode": "paper"}
 
 # 5. Place a test order (paper mode)

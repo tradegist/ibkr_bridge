@@ -15,9 +15,10 @@ setup: ## Create .venv and install all dependencies
 	@test -d .venv || python3 -m venv .venv
 	.venv/bin/pip install -r requirements-dev.txt -r services/bridge/requirements.txt
 	@echo "$(CURDIR)/services/bridge" > $$(find .venv/lib -name site-packages -type d)/$(PROJECT).pth
-	@for f in env env.droplet env.test; do \
-		[ -f ".$$f" ] || { cp env_examples/$$f .$$f && echo "Created .$$f from env_examples/$$f — fill in your values"; }; \
+	@for f in env env.droplet; do \
+		[ -f ".$$f" ] || { cp env_examples/$$f .$$f && echo "  Created .$$f from env_examples/$$f — fill in your values"; }; \
 	done
+	@[ -f .env.test ] || echo "  NOTE: .env.test not auto-created — cp env_examples/env.test .env.test and set real paper-account TWS_* values before running E2E tests."
 
 deploy: ## Deploy infrastructure (Terraform + Docker)
 	$(PYTHON) -m cli deploy
