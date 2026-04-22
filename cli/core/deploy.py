@@ -1,7 +1,9 @@
+import ipaddress
 import os
 import re
 import shutil
 import stat
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -17,12 +19,11 @@ from cli.core import (
     ssh_key_path,
     terraform,
 )
+from cli.core.sync import _run_checks, _sync_local_files
 
 
 def _deploy_standalone():
     """Deploy via Terraform (own droplet), then rsync files and start services."""
-    from cli.core.sync import _run_checks, _sync_local_files
-
     cfg = config()
 
     for cmd in ["terraform", "curl", "rsync"]:
@@ -44,6 +45,25 @@ def _deploy_standalone():
             os.environ.pop(tf_var_key, None)
 
     terraform("init", "-input=false")
+
+    # If DROPLET_IP is set to a valid IP, a reserved IP from a previous
+    # deployment exists on the DO account. Re-import it so Terraform reuses
+    # it instead of creating a new one. Skip placeholder/invalid values.
+    existing_ip = os.environ.get("DROPLET_IP", "").strip()
+    try:
+        if ipaddress.ip_address(existing_ip).version != 4:
+            existing_ip = ""
+    except ValueError:
+        existing_ip = ""
+    if existing_ip:
+        try:
+            state = terraform("state", "list", capture=True).stdout
+        except subprocess.CalledProcessError:
+            state = ""
+        if "digitalocean_reserved_ip.bridge" not in state:
+            print(f"Importing existing reserved IP {existing_ip}...")
+            terraform("import", "digitalocean_reserved_ip.bridge", existing_ip)
+
     terraform("apply", "-auto-approve", "-input=false")
 
     droplet_ip = terraform("output", "-raw", "droplet_ip", capture=True).stdout.strip()
@@ -79,44 +99,54 @@ def _deploy_standalone():
     print(f"  SSH key:     {key_path}")
     print()
     print("  Next steps:")
-    print(f"  1. Add DROPLET_IP={droplet_ip} to .env")
+    print(f"  1. Add DROPLET_IP={droplet_ip} to .env.droplet")
     if cfg.post_deploy_message:
         print(f"  2. {cfg.post_deploy_message}")
     print()
 
 
 def _template_caddy_snippet(src: Path) -> str:
-    """Replace Caddy {$VAR} placeholders with env var values.
+    """Pre-template a Caddy snippet by substituting {$VAR} and {$VAR:-default} placeholders.
 
-    Finds all ``{$NAME}`` patterns in the file and substitutes them
-    with the corresponding environment variable. Raises if any
-    referenced env var is not set.
+    This is the CLI's own pre-templating step, run before snippets are uploaded to Caddy.
+    Supports both bash-style ``{$VAR:-default}`` and Caddy-native ``{$VAR:default}``
+    (single colon) — both are substituted here so Caddy never needs to expand them at
+    runtime (the Caddy container does not have access to the CLI's env vars).
+
+    Substitutes each ``{$NAME}`` with the corresponding environment variable.
+    ``{$NAME:-default}`` / ``{$NAME:default}`` uses the default when the env var is unset or empty.
+    Raises if any required var (no default) is not set.
     """
     content = src.read_text()
-    refs = re.findall(r'\{\$([A-Z_][A-Z0-9_]*)\}', content)
+    pattern = re.compile(r'\{\$([A-Z_][A-Z0-9_]*)(?::-?([^}]*))?\}')
+    refs = pattern.findall(content)
     if not refs:
         return content
-    missing = [name for name in refs if not os.environ.get(name)]
+    missing = [m.group(1) for m in pattern.finditer(content) if m.group(2) is None and not os.environ.get(m.group(1))]
     if missing:
         die(f"Caddy snippet {src.name} references undefined env vars: "
             f"{', '.join(missing)}\nSet them in .env before deploying.")
-    for name in refs:
-        content = content.replace(f"{{${name}}}", os.environ[name])
-    return content
+
+    def _sub(m: re.Match) -> str:
+        name, default = m.group(1), m.group(2) or ""
+        return os.environ.get(name) or default
+
+    return pattern.sub(_sub, content)
 
 
-def _validate_site_snippet_routes(content: str, snippet_name: str, prefix: str) -> None:
-    """Ensure all ``handle`` paths in a site snippet start with *prefix*.
+def _validate_site_snippet_routes(content: str, snippet_name: str, prefixes: list[str]) -> None:
+    """Ensure all ``handle`` paths in a site snippet start with one of *prefixes*.
 
     Prevents a misconfigured snippet from shadowing other projects'
     routes on the shared Caddy instance.
     """
     for match in re.finditer(r'^\s*handle\s+(\S+)', content, re.MULTILINE):
         path = match.group(1)
-        if not path.startswith(f"{prefix}/"):
+        if not any(path.startswith(f"{p}/") for p in prefixes):
+            allowed = ", ".join(f"'{p}/*'" for p in prefixes)
             die(f"Snippet {snippet_name}: handle path '{path}' does not start "
-                f"with project prefix '{prefix}/'. All site snippet routes "
-                f"must be namespaced under '{prefix}/*' to avoid collisions.")
+                f"with any project prefix ({allowed}). All site snippet routes "
+                f"must be namespaced under a project prefix to avoid collisions.")
 
 
 def _deploy_caddy_snippets(droplet_ip: str) -> None:
@@ -134,9 +164,9 @@ def _deploy_caddy_snippets(droplet_ip: str) -> None:
             continue
         for snippet in src_dir.glob("*.caddy"):
             templated = _template_caddy_snippet(snippet)
-            if subdir == "sites" and cfg.route_prefix:
+            if subdir == "sites" and cfg.route_prefixes:
                 _validate_site_snippet_routes(
-                    templated, snippet.name, cfg.route_prefix)
+                    templated, snippet.name, cfg.route_prefixes)
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".caddy", delete=False,
             ) as tmp:
@@ -152,12 +182,45 @@ def _deploy_caddy_snippets(droplet_ip: str) -> None:
     if deployed:
         print("Reloading Caddy configuration...")
         ssh_cmd(droplet_ip,
-                "docker exec caddy caddy reload --config /etc/caddy/Caddyfile")
+                "docker exec "
+                "$(docker ps --filter label=com.docker.compose.service=caddy --format '{{.Names}}' | head -1) "
+                "caddy reload --config /etc/caddy/Caddyfile")
+
+
+def _compute_vnc_basic_auth_hash() -> None:
+    """Compute VNC_BASIC_AUTH_HASH from VNC_SERVER_PASSWORD if not already set.
+
+    Uses ``htpasswd`` (macOS built-in, part of apache2-utils on Linux) to
+    produce a bcrypt hash. No-ops silently if the hash is already set, if
+    VNC_SERVER_PASSWORD is absent, or if htpasswd is unavailable — snippet
+    templating will surface the missing var with a clear message if needed.
+    """
+    if not os.environ.get("VNC_BASIC_AUTH_USER", "").strip():
+        os.environ["VNC_BASIC_AUTH_USER"] = "admin"
+    if os.environ.get("VNC_BASIC_AUTH_HASH", "").strip():
+        return
+    password = os.environ.get("VNC_SERVER_PASSWORD", "").strip()
+    if not password:
+        return
+    if not shutil.which("htpasswd"):
+        return
+    # htpasswd outputs "user:hash" — extract just the hash.
+    # Password is passed via stdin (not argv) to avoid leaking it in process listings.
+    try:
+        result = subprocess.run(
+            ["htpasswd", "-nBi", "user"],
+            input=f"{password}\n",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        die("htpasswd failed to generate VNC auth hash — check that htpasswd is installed correctly.")
+    os.environ["VNC_BASIC_AUTH_HASH"] = result.stdout.strip().split(":", 1)[1]
 
 
 def _deploy_shared():
     """Deploy to an existing shared droplet (no Terraform)."""
-    from cli.core.sync import _run_checks, _sync_local_files
 
     cfg = config()
     droplet_ip = env("DROPLET_IP")
@@ -176,6 +239,7 @@ def _deploy_shared():
             f"docker compose -f docker-compose.yml -f docker-compose.shared.yml "
             f"up -d --build --force-recreate")
 
+    _compute_vnc_basic_auth_hash()
     _deploy_caddy_snippets(droplet_ip)
 
     print()

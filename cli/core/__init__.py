@@ -12,7 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast, overload
 
@@ -60,10 +60,10 @@ class CoreConfig:
     """Optional callback returning droplet size slug for resume.
     If None, defaults to 's-1vcpu-1gb'."""
 
-    route_prefix: str = ""
-    """Expected path prefix for Caddy site snippets (e.g. '/ibkr').
+    route_prefixes: list[str] = field(default_factory=list)
+    """Expected path prefixes for Caddy site snippets (e.g. ['/ibkr']).
     If set, deploy validates that all ``handle`` directives in
-    ``infra/caddy/sites/*.caddy`` start with this prefix."""
+    ``infra/caddy/sites/*.caddy`` start with one of these prefixes."""
 
     pre_sync_hook: Callable[[], None] | None = None
     """Optional callback run before sync (e.g. validate poller-2 env)."""
@@ -142,18 +142,26 @@ def die(msg: str) -> "None":
     sys.exit(1)
 
 
-def load_env(path: str | Path | None = None) -> None:
-    cfg = _config
-    default = cfg.project_dir / ".env" if cfg else Path(".env")
-    env_path = Path(path) if path else default
-    if not env_path.exists():
-        die(".env file not found. Copy .env.example to .env and fill in your values.")
-    for line in env_path.read_text().splitlines():
+def _load_env_file(path: Path) -> None:
+    for line in path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         key, _, value = line.partition("=")
         os.environ[key.strip()] = value
+
+
+def load_env(path: str | Path | None = None) -> None:
+    cfg = _config
+    project_dir = cfg.project_dir if cfg else Path(".")
+    env_path = Path(path) if path else project_dir / ".env"
+    if not env_path.exists():
+        die(".env file not found. Copy env_examples/env to .env and fill in your values.")
+    _load_env_file(env_path)
+    if path is None:
+        droplet_env = project_dir / ".env.droplet"
+        if droplet_env.exists():
+            _load_env_file(droplet_env)
 
 
 @overload
@@ -164,7 +172,7 @@ def env(key: str, default: str | object = _UNSET) -> str:
     val = os.environ.get(key)
     if val is None:
         if default is _UNSET:
-            die(f"{key} is not set in .env")
+            die(f"{key} is not set in .env or .env.droplet")
         return cast(str, default)
     return val
 
@@ -172,13 +180,13 @@ def env(key: str, default: str | object = _UNSET) -> str:
 def require_env(*keys: str) -> None:
     missing = [k for k in keys if not os.environ.get(k)]
     if missing:
-        die(f"Missing required vars in .env: {', '.join(missing)}")
+        die(f"Missing required vars (not set in .env): {', '.join(missing)}")
 
 
 def deploy_mode() -> str:
     mode = os.environ.get("DEPLOY_MODE", "").lower()
     if mode not in _VALID_DEPLOY_MODES:
-        die(f"DEPLOY_MODE must be set to 'standalone' or 'shared' in .env (got: {mode!r})")
+        die(f"DEPLOY_MODE must be set to 'standalone' or 'shared' in .env or .env.droplet (got: {mode!r})")
     return mode
 
 
