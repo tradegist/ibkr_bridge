@@ -40,4 +40,4 @@ def run(args):
     if reserved_ip:
         print()
         print(f"  Reserved IP {reserved_ip} preserved on your DO account.")
-        print(f"  DROPLET_IP in .env.droplet already holds this value — next deploy will reuse it.")
+        print("  DROPLET_IP in .env.droplet already holds this value — next deploy will reuse it.")
