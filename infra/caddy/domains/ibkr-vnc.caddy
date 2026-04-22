@@ -1,6 +1,6 @@
 {$VNC_DOMAIN} {
     basic_auth {
-        {$VNC_BASIC_AUTH_USER} {$VNC_BASIC_AUTH_HASH}
+        {$VNC_BASIC_AUTH_USER:-admin} {$VNC_BASIC_AUTH_HASH}
     }
 
     handle /gateway/* {

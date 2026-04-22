@@ -10,6 +10,7 @@ handle /ibkr/ws/events {
     reverse_proxy bridge:5000
 }
 
-handle /health {
+handle /ibkr/health {
+    rewrite * /health
     reverse_proxy bridge:5000
 }
