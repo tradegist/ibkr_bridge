@@ -5,6 +5,20 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
+
+class _MarketState:
+    """Session-level flag: once any test detects market closed, all skip immediately."""
+
+    def __init__(self) -> None:
+        self._closed = False
+
+    def mark_closed(self) -> None:
+        self._closed = True
+
+    def skip_if_closed(self) -> None:
+        if self._closed:
+            pytest.skip("Market is closed (detected earlier in session)")
+
 BASE_URL = "http://localhost:15010"
 API_TOKEN = "test-token"
 
@@ -26,6 +40,11 @@ def _preflight_check() -> None:
             "Stack may not be ready yet.",
             returncode=1,
         )
+
+
+@pytest.fixture(scope="session")
+def market_state() -> _MarketState:
+    return _MarketState()
 
 
 @pytest.fixture(scope="session")

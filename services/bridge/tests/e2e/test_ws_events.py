@@ -73,11 +73,13 @@ class TestWsAuth:
 class TestWsEventDelivery:
     """Verify that placing an order produces WebSocket events."""
 
-    def test_order_produces_exec_event(self, api: httpx.Client) -> None:
+    def test_order_produces_exec_event(self, api: httpx.Client, market_state: Any) -> None:
         """Subscribe to WS, place an order, receive at least one exec event.
 
         Skips when no execution events arrive (market closed / weekends).
         """
+        market_state.skip_if_closed()
+
         async def _run() -> list[dict[str, Any]]:
             events: list[dict[str, Any]] = []
             async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(WS_URL) as ws:
@@ -103,6 +105,7 @@ class TestWsEventDelivery:
 
         exec_events = [e for e in events if e.get("type") == "execDetailsEvent"]
         if not exec_events:
+            market_state.mark_closed()
             pytest.skip(
                 "No execDetailsEvent received within timeout — "
                 "market is likely closed (weekend/holiday/after-hours)"
@@ -126,8 +129,10 @@ class TestWsEventDelivery:
         assert execution["side"] in ("BOT", "SLD")
         assert execution["shares"] > 0
 
-    def test_replay_returns_buffered_events(self, api: httpx.Client) -> None:
+    def test_replay_returns_buffered_events(self, api: httpx.Client, market_state: Any) -> None:
         """After placing an order, reconnecting with ?last_seq=0 should replay."""
+        market_state.skip_if_closed()
+
         async def _run() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             first_events: list[dict[str, Any]] = []
 
@@ -148,6 +153,7 @@ class TestWsEventDelivery:
                 await ws.close()
 
             if not any(e.get("type") == "execDetailsEvent" for e in first_events):
+                market_state.mark_closed()
                 pytest.skip(
                     "No execDetailsEvent received — "
                     "market is likely closed; replay test not meaningful"
@@ -184,8 +190,10 @@ class TestWsEventDelivery:
         seqs = [int(e["seq"]) for e in replay_events]
         assert seqs == sorted(seqs), f"Replay seqs not sorted: {seqs}"
 
-    def test_replay_skips_already_seen(self, api: httpx.Client) -> None:
+    def test_replay_skips_already_seen(self, api: httpx.Client, market_state: Any) -> None:
         """Reconnecting with last_seq=N should only return events with seq > N."""
+        market_state.skip_if_closed()
+
         async def _run() -> tuple[int, list[dict[str, Any]]]:
             # Step 1: get current max seq by connecting briefly
             current_max_seq = 0
@@ -224,6 +232,7 @@ class TestWsEventDelivery:
                 await ws.close()
 
             if new_max_seq <= current_max_seq:
+                market_state.mark_closed()
                 pytest.skip(
                     "No new events after placing order — "
                     "market is likely closed"
