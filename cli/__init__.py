@@ -50,7 +50,7 @@ _BRIDGE_URLS: dict[str, str] = {
 
 
 def bridge_api(path: str, method: str = "POST", data: object = None) -> object:
-    bridge_env = os.environ.get("BRIDGE_ENV") or os.environ.get("DEFAULT_CLI_BRIDGE_ENV") or "prod"
+    bridge_env = os.environ.get("BRIDGE_ENV") or os.environ.get("DEFAULT_CLI_ENV") or "prod"
     base_url = _BRIDGE_URLS.get(bridge_env)
     if base_url:
         url = f"{base_url}{path}"
