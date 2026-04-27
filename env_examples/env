@@ -44,3 +44,18 @@ TIME_ZONE=America/New_York
 # Set to the same value across all projects that need to reach each other's containers.
 # Leave unset for isolated standalone deployment.
 # SHARED_NETWORK=relay-net
+
+# ── Alerting ───────────────────────────────────────────────────────────
+# Optional: email alerts when ib-gateway stops for an unexpected reason.
+# 2FA timeouts are silently ignored — only genuine crashes trigger an email.
+# Powered by Resend (https://resend.com). All three vars must be set to enable.
+
+# API key from the Resend dashboard (https://resend.com/api-keys).
+# RESEND_API_KEY=re_...
+
+# Recipient address for alert emails.
+# ALERT_REPORT_EMAIL_TO=you@example.com
+
+# Sender address. Must be a domain verified in your Resend account.
+# If omitted, falls back to Resend's shared address (onboarding@resend.dev).
+# ALERT_EMAIL_FROM=alerts@yourdomain.com

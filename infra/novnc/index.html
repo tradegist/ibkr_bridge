@@ -181,6 +181,11 @@
 
       var rfb;
       var desktopName;
+      var lastPassword = '';
+      var retryCount = 0;
+      var retryTimeout = null;
+      var MAX_RETRIES = 6;
+      var RETRY_INTERVAL = 5000;
 
       function updateDesktopName(e) {
         desktopName = e.detail.name;
@@ -205,9 +210,8 @@
         document.getElementById("noVNC_status").appendChild(form);
       }
       function setPassword() {
-        rfb.sendCredentials({
-          password: document.getElementById("password_input").value,
-        });
+        lastPassword = document.getElementById("password_input").value;
+        rfb.sendCredentials({ password: lastPassword });
         return false;
       }
 
@@ -226,9 +230,9 @@
       }
 
       function connected(e) {
-        if (
-          WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")
-        ) {
+        retryCount = 0;
+        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null; }
+        if (WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")) {
           status("Connected (encrypted) to " + desktopName, "normal");
         } else {
           status("Connected (unencrypted) to " + desktopName, "normal");
@@ -237,10 +241,34 @@
 
       function disconnected(e) {
         if (e.detail.clean) {
+          retryCount = 0;
           status("Disconnected", "normal");
+        } else if (retryCount < MAX_RETRIES) {
+          scheduleReconnect();
         } else {
+          retryCount = 0;
           showStartGateway();
         }
+      }
+
+      function scheduleReconnect() {
+        retryCount++;
+        var secs = Math.ceil(RETRY_INTERVAL / 1000);
+        status("Gateway unavailable — retrying in " + secs + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
+        var countdown = secs;
+        var countdownId = setInterval(function () {
+          countdown--;
+          if (countdown > 0) {
+            status("Gateway unavailable — retrying in " + countdown + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
+          } else {
+            clearInterval(countdownId);
+          }
+        }, 1000);
+        retryTimeout = setTimeout(function () {
+          clearInterval(countdownId);
+          status("Reconnecting…", "normal");
+          reconnect(lastPassword);
+        }, RETRY_INTERVAL);
       }
 
       // In local dev (port 15100), gateway-controller runs on port 15102.
@@ -276,6 +304,7 @@
             .then(function (data) {
               if (data.status === "started") {
                 status("Gateway started — connecting…", "normal");
+                lastPassword = pwd;
                 setTimeout(function () {
                   reconnect(pwd);
                 }, 5000);
@@ -337,6 +366,7 @@
       }
 
       var password = WebUtil.getConfigVar("password", "");
+      lastPassword = password;
       var path = WebUtil.getConfigVar("path", "websockify");
 
       // If a token variable is passed in, set the parameter in a cookie.
