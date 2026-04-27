@@ -120,14 +120,14 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 
 Six Docker containers in a single Compose stack on a DigitalOcean droplet:
 
-| Service              | Role                                                                                                                              |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway`. `restart: no` — never auto-restarts; must be started manually via the "Start Gateway" UI after any exit (including 2FA timeout). |
-| `bridge`             | Python REST API — connects to Gateway via ib_async, exposes `/ibkr/order` and `/ibkr/trades`                                      |
-| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring. Has a healthcheck (TCP probe to ib-gateway:5900). Browser auto-retries on disconnect. |
-| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.                                                   |
-| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket. Runs a background monitor (`monitor-gateway`) that sends Resend email alerts on unexpected ib-gateway exits (2FA stops are silently ignored). |
-| `autoheal`           | Watches containers labelled `autoheal=true` and restarts them when unhealthy. Restarts `novnc` when VNC backend is unreachable.   |
+| Service              | Role                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway`. `restart: no` — never auto-restarts; must be started manually via the "Start Gateway" UI after any exit (including 2FA timeout). Healthcheck uses an RFB banner probe (reads `RFB 003.xxx` from port 5900) rather than a TCP-only check, because x11vnc accumulates CLOSE_WAIT sockets and accepts TCP connections while being unable to serve clients. |
+| `bridge`             | Python REST API — connects to Gateway via ib_async, exposes `/ibkr/order` and `/ibkr/trades`                                                                                                                                                                                                                                                                                                                                                       |
+| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring. Has a healthcheck (RFB banner probe to ib-gateway:5900 — reads the `RFB 003.xxx` string, not just TCP-open). Browser auto-retries on disconnect.                                                                                                                                                                                                                                          |
+| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.                                                                                                                                                                                                                                                                                                                                                                    |
+| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket. Runs a background monitor (`monitor-gateway`) that sends Resend email alerts on unexpected ib-gateway exits (2FA stops are silently ignored).                                                                                                                                                                                                         |
+| `autoheal`           | Watches containers labelled `autoheal=true` and restarts them when unhealthy. Restarts `novnc` when VNC backend is unreachable.                                                                                                                                                                                                                                                                                                                    |
 
 All secrets are injected via `.env` → `environment` in `docker-compose.yml`.
 Caddy reads `SITE_DOMAIN` and `VNC_DOMAIN` from env vars.
@@ -301,9 +301,9 @@ services/bridge/
 
 This project has **two model locations** — a shared source of truth (currently empty) and one service-specific file:
 
-| File                          | Domain                 | Contains                                                                            |
-| ----------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
-| `services/shared/__init__.py` | Shared (outbound)      | Reserved for cross-project types (future `IbkrBridge` TS namespace). Currently empty |
+| File                               | Domain                      | Contains                                                                                       |
+| ---------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `services/shared/__init__.py`      | Shared (outbound)           | Reserved for cross-project types (future `IbkrBridge` TS namespace). Currently empty           |
 | `services/bridge/bridge_models.py` | Bridge HTTP + WS (outbound) | All HTTP API models, WS event models, and Literal type aliases (`IbkrBridgeHttp` TS namespace) |
 
 - **`services/shared/__init__.py`** is reserved for shared/common types that multiple consumers depend on (the `IbkrBridge` primary namespace). When types are added here, they get their own `types/typescript/shared/` directory and `SCHEMA_MODELS` entry in `schema_gen.py`.
