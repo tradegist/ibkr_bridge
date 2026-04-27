@@ -1,4 +1,12 @@
 {$VNC_DOMAIN} {
+    # Diagnostic access logging (added 2026-04-27 to investigate WS "Pending" issue).
+    # Remove once root cause is confirmed.
+    log {
+        output stdout
+        format console
+        level DEBUG
+    }
+
     basic_auth {
         {$VNC_BASIC_AUTH_USER} {$VNC_BASIC_AUTH_HASH}
     }
