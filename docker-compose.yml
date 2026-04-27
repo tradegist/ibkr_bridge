@@ -23,7 +23,7 @@ services:
         - CMD-SHELL
         - >-
           bash -c 'read -t3 l < /dev/tcp/localhost/5900 &&
-          echo "$l" | grep -q "^RFB"' 2>/dev/null &&
+          echo "$$l" | grep -q "^RFB"' 2>/dev/null &&
           (bash -c 'echo > /dev/tcp/localhost/4004' 2>/dev/null ||
           bash -c 'echo > /dev/tcp/localhost/4003' 2>/dev/null)
       interval: 15s
