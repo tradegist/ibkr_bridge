@@ -50,6 +50,8 @@ services:
     profiles: ["disabled"]
   gateway-controller:
     profiles: ["disabled"]
+  autoheal:
+    profiles: ["disabled"]
 
 networks:
   default:

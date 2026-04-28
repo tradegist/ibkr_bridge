@@ -118,15 +118,16 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 
 ## Architecture
 
-Five Docker containers in a single Compose stack on a DigitalOcean droplet:
+Six Docker containers in a single Compose stack on a DigitalOcean droplet:
 
-| Service              | Role                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway`    |
-| `bridge`             | Python REST API — connects to Gateway via ib_async, exposes `/ibkr/order` and `/ibkr/trades` |
-| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring                                      |
-| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.              |
-| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket  |
+| Service              | Role                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ib-gateway`         | IB Gateway (Java) — TWS API on 4003/4004, VNC on 5900. Image: `ghcr.io/gnzsnz/ib-gateway`. `restart: no` — never auto-restarts; must be started manually via the "Start Gateway" UI after any exit (including 2FA timeout). Healthcheck uses an RFB banner probe (reads `RFB 003.xxx` from port 5900) rather than a TCP-only check, because x11vnc accumulates CLOSE_WAIT sockets and accepts TCP connections while being unable to serve clients. |
+| `bridge`             | Python REST API — connects to Gateway via ib_async, exposes `/ibkr/order` and `/ibkr/trades`                                                                                                                                                                                                                                                                                                                                                       |
+| `novnc`              | Browser-based VNC client for 2FA and Gateway monitoring. Has a healthcheck (RFB banner probe to ib-gateway:5900 — reads the `RFB 003.xxx` string, not just TCP-open). Browser auto-retries on disconnect.                                                                                                                                                                                                                                          |
+| `caddy`              | Reverse proxy with automatic HTTPS (Let's Encrypt). Routes API and VNC traffic.                                                                                                                                                                                                                                                                                                                                                                    |
+| `gateway-controller` | Alpine + Docker CLI — HTTP endpoints to start/check the Gateway container via Docker socket. Runs a background monitor (`monitor-gateway`) that sends Resend email alerts on unexpected ib-gateway exits (2FA stops are silently ignored).                                                                                                                                                                                                         |
+| `autoheal`           | Watches containers labelled `autoheal=true` and restarts them when unhealthy. Restarts `novnc` when VNC backend is unreachable.                                                                                                                                                                                                                                                                                                                    |
 
 All secrets are injected via `.env` → `environment` in `docker-compose.yml`.
 Caddy reads `SITE_DOMAIN` and `VNC_DOMAIN` from env vars.
@@ -300,9 +301,9 @@ services/bridge/
 
 This project has **two model locations** — a shared source of truth (currently empty) and one service-specific file:
 
-| File                          | Domain                 | Contains                                                                            |
-| ----------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
-| `services/shared/__init__.py` | Shared (outbound)      | Reserved for cross-project types (future `IbkrBridge` TS namespace). Currently empty |
+| File                               | Domain                      | Contains                                                                                       |
+| ---------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `services/shared/__init__.py`      | Shared (outbound)           | Reserved for cross-project types (future `IbkrBridge` TS namespace). Currently empty           |
 | `services/bridge/bridge_models.py` | Bridge HTTP + WS (outbound) | All HTTP API models, WS event models, and Literal type aliases (`IbkrBridgeHttp` TS namespace) |
 
 - **`services/shared/__init__.py`** is reserved for shared/common types that multiple consumers depend on (the `IbkrBridge` primary namespace). When types are added here, they get their own `types/typescript/shared/` directory and `SCHEMA_MODELS` entry in `schema_gen.py`.
@@ -335,10 +336,11 @@ Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEv
 
 ## Gateway Controller
 
-The `infra/gateway-controller/` container provides HTTP endpoints to start/check the IB Gateway container without SSH:
+The `infra/gateway-controller/` container provides HTTP endpoints to start/check the IB Gateway container without SSH, and runs a background crash monitor:
 
 - **`POST /cgi-bin/start-gateway`** — starts the `ib-gateway` container via Docker socket.
 - **`GET /cgi-bin/gateway-status`** — returns the `ib-gateway` container state.
+- **`monitor-gateway` (background daemon)** — watches `docker events` for ib-gateway `die` events. On exit, tails the last 50 log lines: if `"Second Factor Authentication"` is present the stop is a 2FA timeout and is silently ignored; otherwise a crash alert email is sent via the Resend API. Requires `RESEND_API_KEY` and `ALERT_REPORT_EMAIL_TO` env vars. `ALERT_EMAIL_FROM` sets the sender address (falls back to `onboarding@resend.dev`). The monitor restarts itself if the Docker events pipe closes.
 - **Container discovery uses Compose labels** (`com.docker.compose.service=ib-gateway` + `com.docker.compose.project`), not hardcoded container names. This is robust across project name changes and Compose naming conventions.
 - These are served via busybox httpd as CGI scripts. The container mounts the Docker socket (`/var/run/docker.sock`). Caddy rewrites `/gateway/*` to `/cgi-bin/*` before proxying.
 - Exposed at `https://{VNC_DOMAIN}/gateway/*` via Caddy reverse proxy.
@@ -490,10 +492,12 @@ infra/
       ibkr-bridge.caddy   # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /ibkr/ws/events, /health)
     domains/
       ibkr-vnc.caddy      # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
-  gateway-controller/     # CGI container for Gateway lifecycle control
+  gateway-controller/     # CGI container for Gateway lifecycle control + crash monitoring
     Dockerfile
-    start-gateway.sh
-    gateway-status.sh
+    entrypoint.sh         # Starts monitor-gateway in background, then execs httpd
+    start-gateway.sh      # CGI: start ib-gateway container
+    gateway-status.sh     # CGI: check ib-gateway status
+    monitor-gateway.sh    # Background daemon: watch for unexpected exits, send Resend alert
   novnc/
     index.html            # Custom noVNC landing page
 terraform/
