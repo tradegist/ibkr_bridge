@@ -1,4 +1,4 @@
-FROM docker:27-cli AS docker-cli
+FROM docker:29-cli AS docker-cli
 
 FROM alpine:3.23
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
