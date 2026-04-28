@@ -184,8 +184,14 @@
       var lastPassword = '';
       var retryCount = 0;
       var retryTimeout = null;
+      var retryCountdownId = null;
       var MAX_RETRIES = 6;
       var RETRY_INTERVAL = 5000;
+
+      function cancelPendingReconnect() {
+        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null; }
+        if (retryCountdownId) { clearInterval(retryCountdownId); retryCountdownId = null; }
+      }
 
       function updateDesktopName(e) {
         desktopName = e.detail.name;
@@ -231,7 +237,7 @@
 
       function connected(e) {
         retryCount = 0;
-        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null; }
+        cancelPendingReconnect();
         if (WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")) {
           status("Connected (encrypted) to " + desktopName, "normal");
         } else {
@@ -242,6 +248,7 @@
       function disconnected(e) {
         if (e.detail.clean) {
           retryCount = 0;
+          cancelPendingReconnect();
           status("Disconnected", "normal");
         } else if (retryCount < MAX_RETRIES) {
           scheduleReconnect();
@@ -252,20 +259,23 @@
       }
 
       function scheduleReconnect() {
+        cancelPendingReconnect();
         retryCount++;
         var secs = Math.ceil(RETRY_INTERVAL / 1000);
         status("Gateway unavailable — retrying in " + secs + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
         var countdown = secs;
-        var countdownId = setInterval(function () {
+        retryCountdownId = setInterval(function () {
           countdown--;
           if (countdown > 0) {
             status("Gateway unavailable — retrying in " + countdown + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
           } else {
-            clearInterval(countdownId);
+            clearInterval(retryCountdownId);
+            retryCountdownId = null;
           }
         }, 1000);
         retryTimeout = setTimeout(function () {
-          clearInterval(countdownId);
+          if (retryCountdownId) { clearInterval(retryCountdownId); retryCountdownId = null; }
+          retryTimeout = null;
           status("Reconnecting…", "normal");
           reconnect(lastPassword);
         }, RETRY_INTERVAL);
@@ -278,6 +288,7 @@
         : "/gateway/cgi-bin/start-gateway";
 
       function showStartGateway() {
+        cancelPendingReconnect();
         var bar = document.getElementById("noVNC_status_bar");
         bar.className = STATUS_CLASSES["warn"];
         var statusEl = document.getElementById("noVNC_status");

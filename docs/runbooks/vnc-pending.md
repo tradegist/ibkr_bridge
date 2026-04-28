@@ -1,11 +1,13 @@
 # Runbook: VNC stuck on "Connecting" / wss "Pending"
 
+> **For agents executing this runbook:** the placeholders `vnc.example.com`, `<DROPLET_IP>`, and the omitted SSH `-i` key path are intentional. Ask the user for the real domain, droplet IP, and SSH key path before running any command.
+
 **First seen:** 2026-04-27. **Status:** intermittent, root cause not pinned down.
 
 ## Symptom
 
-- `https://vnc.wetradetime.com/` loads (the noVNC HTML appears) but the status stays at **"Connecting"** indefinitely.
-- In browser DevTools → Network, the `wss://vnc.wetradetime.com/websockify` row shows:
+- `https://vnc.example.com/` loads (the noVNC HTML appears) but the status stays at **"Connecting"** indefinitely.
+- In browser DevTools → Network, the `wss://vnc.example.com/websockify` row shows:
   - Status: `(pending)` / Time: `Pending`
   - **Protocol column: empty**
   - Headers tab: "Provisional headers are shown" (no `Authorization`, no `:method`, etc.)
@@ -17,7 +19,7 @@ If you see status `401`, `404`, or `502` instead, this is a different problem �
 The `caddy reload` is graceful so it won't drop in-flight VNC sessions, but it does reset listeners and has empirically unstuck this state:
 
 ```sh
-ssh -i ~/.ssh/relayport root@<DROPLET_IP> \
+ssh root@<DROPLET_IP> \
   "docker exec relayport-caddy-1 caddy reload --config /etc/caddy/Caddyfile"
 ```
 
@@ -30,14 +32,14 @@ If reload doesn't help: restart caddy hard (`docker restart relayport-caddy-1`).
 Confirm the backend is actually healthy — if it's not, fix that instead:
 
 ```sh
-ssh -i ~/.ssh/relayport root@<DROPLET_IP> \
+ssh root@<DROPLET_IP> \
   "docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'ib-gateway|novnc|caddy'"
 ```
 
 All three should be `Up ... (healthy)` (or just `Up` for caddy, which has no healthcheck). Then verify the internal proxy chain end-to-end:
 
 ```sh
-ssh -i ~/.ssh/relayport root@<DROPLET_IP> "
+ssh root@<DROPLET_IP> "
   docker exec ibkr-bridge-novnc-1 python3 -c \"
 import socket; s=socket.socket(); s.settimeout(3);
 s.connect(('ib-gateway',5900)); print(repr(s.recv(16))); s.close()\"
@@ -48,10 +50,10 @@ Expect `b'RFB 003.008\n'`. If you get a timeout or a different banner, the issue
 
 ## Diagnosis
 
-Diagnostic access logging is enabled on the `vnc.wetradetime.com` site (added 2026-04-27). It writes to Caddy's stdout, visible via `docker logs relayport-caddy-1`. Pull the recent `/websockify` entries:
+Diagnostic access logging is enabled on the `vnc.example.com` site (added 2026-04-27). It writes to Caddy's stdout, visible via `docker logs relayport-caddy-1`. Pull the recent `/websockify` entries:
 
 ```sh
-ssh -i ~/.ssh/relayport root@<DROPLET_IP> \
+ssh root@<DROPLET_IP> \
   "docker logs --since 1h relayport-caddy-1 2>&1 | grep 'log0' | grep '/websockify'"
 ```
 
@@ -72,9 +74,9 @@ What to look for in each entry:
 
 To distinguish a real issue from a stuck browser/network connection:
 
-1. Close all tabs to `vnc.wetradetime.com`.
+1. Close all tabs to `vnc.example.com`.
 2. Open a **new incognito window** (forces fresh TLS session, no cached state).
-3. Visit `https://vnc.wetradetime.com/`, authenticate, watch the WS row in DevTools.
+3. Visit `https://vnc.example.com/`, authenticate, watch the WS row in DevTools.
 
 If incognito works but a normal window doesn't, the user's browser/network stack is the culprit, not the server.
 

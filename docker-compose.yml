@@ -54,19 +54,26 @@ services:
         condition: service_healthy
     healthcheck:
       # RFB banner probe: connects to x11vnc inside ib-gateway and reads the
-      # "RFB 003.xxx" version string (3s timeout). Same reasoning as the
-      # ib-gateway healthcheck above — a TCP-only check passes even when x11vnc
-      # is stuck and not serving clients. autoheal uses this to restart novnc
-      # when the VNC backend is broken.
+      # "RFB 003.xxx" version string (3s timeout). A TCP-only check passes
+      # even when x11vnc is stuck and not serving clients, so reading the
+      # banner is what confirms VNC is actually serving.
+      #
+      # If ib-gateway is unreachable (e.g. it exited after a 2FA timeout and
+      # is intentionally not restarting), we exit 0 so autoheal does not
+      # restart novnc in a tight loop during expected gateway downtime —
+      # restarting novnc cannot fix an absent or stuck upstream anyway.
+      # autoheal only fires when the gateway is up but the banner is wrong.
       test:
         - CMD
         - python3
         - -c
-        - >-
-          import socket; s = socket.socket(); s.settimeout(3);
-          s.connect(('ib-gateway', 5900));
-          b = s.recv(16); s.close();
-          assert b.startswith(b'RFB'), b
+        - |
+          import socket
+          s = socket.socket(); s.settimeout(3)
+          try: s.connect(('ib-gateway', 5900))
+          except OSError: raise SystemExit(0)
+          b = s.recv(16); s.close()
+          if not b.startswith(b'RFB'): raise RuntimeError(f'Invalid RFB banner: {b!r}')
       interval: 15s
       timeout: 10s
       retries: 3
@@ -143,7 +150,7 @@ services:
       - "9000"
 
   autoheal:
-    image: willfarrell/autoheal:latest
+    image: willfarrell/autoheal@sha256:84e074a95e8419db9e767cf095c992cc79c1b643773ffc61353be98b5be722e2
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
