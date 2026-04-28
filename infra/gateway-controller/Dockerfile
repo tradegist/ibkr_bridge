@@ -1,6 +1,6 @@
 FROM docker:27-cli AS docker-cli
 
-FROM alpine:3.20
+FROM alpine:3.23
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 RUN apk add --no-cache busybox-extras curl jq && mkdir -p /var/www/cgi-bin
 COPY start-gateway.sh /var/www/cgi-bin/start-gateway
