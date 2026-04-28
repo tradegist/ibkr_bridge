@@ -106,8 +106,8 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 ## Dependency Management
 
 - **All dependencies use exact pins (`==`).** Both runtime (`services/bridge/requirements.txt`) and dev (`requirements-dev.txt`) deps must be pinned to a specific version. Builds must be reproducible — never use `>=`, `~=`, or unpinned versions.
-- **Shared deps must be aligned across files.** Any dependency that appears in both `requirements-dev.txt` and a service's `requirements.txt` (e.g. `pydantic`, `httpx`) MUST be pinned to the **exact same version** in both places. The dev environment must match what runs in production. When bumping a shared dep, update every file that pins it in the same commit.
-- **When adding a new dependency**, always pin it immediately to an exact version. If the dep is also used at runtime, add it to the service's `requirements.txt` with the same pin.
+- **`requirements-dev.txt` contains only dev-only tools** (mypy, pytest, ruff). Runtime deps (`pydantic`, `httpx`, etc.) belong exclusively in `services/bridge/requirements.txt`. Both files are always installed together (CI and `make setup`), so runtime deps are available in the dev environment without duplication. Never add a runtime dep to `requirements-dev.txt` — it would create two separate Dependabot PRs for the same package with no way to combine them.
+- **When adding a new dependency**, always pin it immediately to an exact version. Runtime deps go in the service's `requirements.txt`; dev-only tools go in `requirements-dev.txt`.
 
 ## Docker
 
