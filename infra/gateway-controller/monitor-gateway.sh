@@ -19,25 +19,49 @@ send_alert() {
 
   from="${ALERT_EMAIL_FROM:-onboarding@resend.dev}"
   project="${COMPOSE_PROJECT_NAME:-ib-gateway}"
-  logs=$(docker logs "$container_id" --tail=40 2>&1)
 
   payload=$(jq -n \
     --arg from "$from" \
     --arg to   "$ALERT_REPORT_EMAIL_TO" \
     --arg subj "[$project] ib-gateway stopped unexpectedly (exit $exit_code)" \
-    --arg body "ib-gateway exited with code $exit_code.
+    --arg body "ib-gateway exited unexpectedly.
 
-Last 40 log lines:
-$logs" \
+Project:      $project
+Container ID: $container_id
+Exit code:    $exit_code
+
+Logs are not included in this alert (they may contain credentials or
+account data). Retrieve them on the droplet:
+
+  docker logs $container_id --tail=200
+
+If the container has been pruned, find the most recent one by label:
+
+  docker ps -a \\
+    --filter label=com.docker.compose.service=ib-gateway \\
+    --filter label=com.docker.compose.project=$project
+" \
     '{from: $from, to: [$to], subject: $subj, text: $body}')
 
-  http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+  response_file=$(mktemp)
+  http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
     -X POST https://api.resend.com/emails \
     -H "Authorization: Bearer $RESEND_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$payload")
+  curl_status=$?
+  response_body=$(cat "$response_file")
+  rm -f "$response_file"
 
-  echo "[monitor] alert sent to $ALERT_REPORT_EMAIL_TO (HTTP $http_code)"
+  case "$http_code" in
+    2*)
+      echo "[monitor] alert sent to $ALERT_REPORT_EMAIL_TO (HTTP $http_code)"
+      ;;
+    *)
+      echo "[monitor] failed to send alert to $ALERT_REPORT_EMAIL_TO: curl_exit=$curl_status http=$http_code body=$response_body" >&2
+      return 1
+      ;;
+  esac
 }
 
 echo "[monitor] started, watching for ib-gateway exit events..."

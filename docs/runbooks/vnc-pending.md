@@ -2,6 +2,8 @@
 
 > **For agents executing this runbook:** the placeholders `vnc.example.com`, `<DROPLET_IP>`, and the omitted SSH `-i` key path are intentional. Ask the user for the real domain, droplet IP, and SSH key path before running any command.
 
+The commands below resolve the Caddy container by Compose label rather than hardcoding a name, so they work in both deploy modes (standalone → `ibkr-bridge-caddy-1`, shared → `relayport-caddy-1`) and survive replica-suffix changes.
+
 **First seen:** 2026-04-27. **Status:** intermittent, root cause not pinned down.
 
 ## Symptom
@@ -19,13 +21,15 @@ If you see status `401`, `404`, or `502` instead, this is a different problem �
 The `caddy reload` is graceful so it won't drop in-flight VNC sessions, but it does reset listeners and has empirically unstuck this state:
 
 ```sh
-ssh root@<DROPLET_IP> \
-  "docker exec relayport-caddy-1 caddy reload --config /etc/caddy/Caddyfile"
+ssh root@<DROPLET_IP> '
+  CADDY=$(docker ps --filter label=com.docker.compose.service=caddy --format "{{.Names}}" | head -1)
+  docker exec "$CADDY" caddy reload --config /etc/caddy/Caddyfile
+'
 ```
 
 Then the user reloads the browser tab (preferably in a fresh incognito window — see "Fresh-state test" below).
 
-If reload doesn't help: restart caddy hard (`docker restart relayport-caddy-1`). This *will* drop existing VNC sessions.
+If reload doesn't help: restart caddy hard (`docker restart "$CADDY"`, or look up the name as above and `docker restart <name>`). This *will* drop existing VNC sessions.
 
 ## What to check before assuming this runbook applies
 
@@ -50,11 +54,13 @@ Expect `b'RFB 003.008\n'`. If you get a timeout or a different banner, the issue
 
 ## Diagnosis
 
-Diagnostic access logging is enabled on the `vnc.example.com` site (added 2026-04-27). It writes to Caddy's stdout, visible via `docker logs relayport-caddy-1`. Pull the recent `/websockify` entries:
+Diagnostic access logging is enabled on the `vnc.example.com` site (added 2026-04-27). It writes to Caddy's stdout. Pull the recent `/websockify` entries:
 
 ```sh
-ssh root@<DROPLET_IP> \
-  "docker logs --since 1h relayport-caddy-1 2>&1 | grep 'log0' | grep '/websockify'"
+ssh root@<DROPLET_IP> '
+  CADDY=$(docker ps --filter label=com.docker.compose.service=caddy --format "{{.Names}}" | head -1)
+  docker logs --since 1h "$CADDY" 2>&1 | grep "log0" | grep "/websockify"
+'
 ```
 
 What to look for in each entry:
@@ -104,4 +110,4 @@ When the issue is confirmed gone (e.g., 30+ days without recurrence, or a confir
 - `infra/caddy/domains/ibkr-vnc.caddy` (local source, marked with a 2026-04-27 comment)
 - `/opt/caddy-shared/domains/ibkr-vnc.caddy` (deployed copy on the droplet)
 
-Then `docker exec relayport-caddy-1 caddy reload --config /etc/caddy/Caddyfile`.
+Then run the `caddy reload` snippet from the "Quick recovery" section above.
