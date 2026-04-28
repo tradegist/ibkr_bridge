@@ -47,6 +47,7 @@ If the container has been pruned, find the most recent one by label:
 
   response_file=$(mktemp)
   http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
+    --connect-timeout 5 --max-time 15 --retry 2 --retry-delay 2 \
     -X POST https://api.resend.com/emails \
     -H "Authorization: Bearer $RESEND_API_KEY" \
     -H "Content-Type: application/json" \
