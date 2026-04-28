@@ -145,7 +145,7 @@ services:
     restart: always
     init: true
     environment:
-      COMPOSE_PROJECT_NAME: ibkr-bridge
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ibkr-bridge}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       ALERT_REPORT_EMAIL_TO: ${ALERT_REPORT_EMAIL_TO:-}
       ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}

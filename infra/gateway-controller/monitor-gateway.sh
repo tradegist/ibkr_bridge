@@ -3,9 +3,11 @@
 # A stop caused by 2FA timeout is identified by the presence of "Second Factor
 # Authentication" in the final log lines and is silently ignored.
 
-label_filters="--filter label=com.docker.compose.service=ib-gateway"
+# POSIX sh has no arrays; use positional params to hold filter args so each
+# --filter value stays a single shell word even if it contains whitespace.
+set -- --filter "label=com.docker.compose.service=ib-gateway"
 if [ -n "$COMPOSE_PROJECT_NAME" ]; then
-  label_filters="$label_filters --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
+  set -- "$@" --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
 fi
 
 send_alert() {
@@ -67,8 +69,7 @@ If the container has been pruned, find the most recent one by label:
 echo "[monitor] started, watching for ib-gateway exit events..."
 
 while true; do
-  # sh -c wrapper so $label_filters expands as separate words
-  sh -c "docker events $label_filters --filter event=die --format '{{.ID}} {{.Actor.Attributes.exitCode}}'" \
+  docker events "$@" --filter event=die --format '{{.ID}} {{.Actor.Attributes.exitCode}}' \
   | while IFS=' ' read -r container_id exit_code; do
     echo "[monitor] ib-gateway stopped (exit $exit_code, container $container_id)"
 
