@@ -1,0 +1,95 @@
+version: 2
+updates:
+  # Tracks image: lines in docker-compose.yml — both version tags and @sha256
+  # digest pins. Opens one grouped PR per week so low-churn images don't
+  # generate noise. Images built locally (build:) are not covered here.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      docker-compose:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  # Tracks FROM lines in the Dockerfiles for services we build ourselves.
+  - package-ecosystem: "docker"
+    directory: "/services/bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "docker"
+    directory: "/infra/gateway-controller"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  # Python deps. One entry per directory containing a requirements*.txt or
+  # pyproject.toml with a [project] table — Dependabot scans the configured
+  # directory only, so each manifest location needs its own entry.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-root:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "pip"
+    directory: "/services/bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-bridge:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "pip"
+    directory: "/types/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-types:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  # Keeps GitHub Actions used in workflows up to date (security patches etc).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
