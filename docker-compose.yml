@@ -51,7 +51,11 @@ services:
     restart: always
     depends_on:
       ib-gateway:
-        condition: service_healthy
+        # Not service_healthy: ib-gateway is unhealthy while waiting for the
+        # 2FA prompt (API port 4003/4004 isn't open yet), and that's exactly
+        # when the user needs novnc to complete 2FA in the browser. Waiting
+        # for healthy would deadlock recovery after a 2FA timeout exit.
+        condition: service_started
     healthcheck:
       # RFB banner probe: connects to x11vnc inside ib-gateway and reads the
       # "RFB 003.xxx" version string (3s timeout). A TCP-only check passes
@@ -139,6 +143,7 @@ services:
   gateway-controller:
     build: ./infra/gateway-controller
     restart: always
+    init: true
     environment:
       COMPOSE_PROJECT_NAME: ibkr-bridge
       RESEND_API_KEY: ${RESEND_API_KEY:-}

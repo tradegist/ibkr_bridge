@@ -43,11 +43,12 @@ ssh root@<DROPLET_IP> \
 All three should be `Up ... (healthy)` (or just `Up` for caddy, which has no healthcheck). Then verify the internal proxy chain end-to-end:
 
 ```sh
-ssh root@<DROPLET_IP> "
-  docker exec ibkr-bridge-novnc-1 python3 -c \"
+ssh root@<DROPLET_IP> '
+  NOVNC=$(docker ps --filter label=com.docker.compose.service=novnc --format "{{.Names}}" | head -1)
+  docker exec "$NOVNC" python3 -c "
 import socket; s=socket.socket(); s.settimeout(3);
-s.connect(('ib-gateway',5900)); print(repr(s.recv(16))); s.close()\"
-"
+s.connect((\"ib-gateway\",5900)); print(repr(s.recv(16))); s.close()"
+'
 ```
 
 Expect `b'RFB 003.008\n'`. If you get a timeout or a different banner, the issue is x11vnc, not Caddy — see the ib-gateway healthcheck in `docker-compose.yml` for the failure mode it covers.
