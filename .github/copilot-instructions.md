@@ -105,9 +105,9 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 
 ## Dependency Management
 
-- **Runtime deps (`services/bridge/requirements.txt`)** use exact pins (`==`). These are deployed to production containers — builds must be reproducible.
-- **Dev deps (`requirements-dev.txt`)** use major-version constraints (`>=X,<X+1`). This allows minor/patch updates while preventing breaking changes.
-- **When adding a new dependency**, always pin it immediately — never leave it unpinned. Use exact pin for runtime, major-version constraint for dev.
+- **All dependencies use exact pins (`==`).** Both runtime (`services/bridge/requirements.txt`) and dev (`requirements-dev.txt`) deps must be pinned to a specific version. Builds must be reproducible — never use `>=`, `~=`, or unpinned versions.
+- **Shared deps must be aligned across files.** Any dependency that appears in both `requirements-dev.txt` and a service's `requirements.txt` (e.g. `pydantic`, `httpx`) MUST be pinned to the **exact same version** in both places. The dev environment must match what runs in production. When bumping a shared dep, update every file that pins it in the same commit.
+- **When adding a new dependency**, always pin it immediately to an exact version. If the dep is also used at runtime, add it to the service's `requirements.txt` with the same pin.
 
 ## Docker
 
