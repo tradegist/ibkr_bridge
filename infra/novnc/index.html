@@ -243,6 +243,10 @@
 
       function pasteClipboard() {
         if (!rfb) return;
+        if (!window.isSecureContext || !navigator.clipboard?.readText) {
+          status("Paste requires a secure context (HTTPS)", "warn");
+          return;
+        }
         navigator.clipboard
           .readText()
           .then(function (text) {
