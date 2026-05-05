@@ -181,7 +181,7 @@
 
       var rfb;
       var desktopName;
-      var lastPassword = '';
+      var lastPassword = "";
       var retryCount = 0;
       var retryTimeout = null;
       var retryCountdownId = null;
@@ -189,8 +189,14 @@
       var RETRY_INTERVAL = 5000;
 
       function cancelPendingReconnect() {
-        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null; }
-        if (retryCountdownId) { clearInterval(retryCountdownId); retryCountdownId = null; }
+        if (retryTimeout) {
+          clearTimeout(retryTimeout);
+          retryTimeout = null;
+        }
+        if (retryCountdownId) {
+          clearInterval(retryCountdownId);
+          retryCountdownId = null;
+        }
       }
 
       function updateDesktopName(e) {
@@ -235,10 +241,43 @@
         document.getElementById("noVNC_status").textContent = text;
       }
 
+      function pasteClipboard() {
+        if (!rfb) return;
+        if (!window.isSecureContext || !navigator.clipboard?.readText) {
+          status("Paste requires a secure context (HTTPS)", "warn");
+          return;
+        }
+        navigator.clipboard
+          .readText()
+          .then(function (text) {
+            for (var i = 0; i < text.length; i++) {
+              var c = text.charCodeAt(i);
+              var keysym = c > 0x7e ? 0x01000000 + c : c;
+              rfb.sendKey(keysym, null, true);
+              rfb.sendKey(keysym, null, false);
+            }
+          })
+          .catch(function () {
+            status(
+              "Clipboard access denied — allow clipboard permission in browser",
+              "warn",
+            );
+          });
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        document
+          .getElementById("noVNC_paste_btn")
+          .addEventListener("click", pasteClipboard);
+      });
+
       function connected(e) {
         retryCount = 0;
         cancelPendingReconnect();
-        if (WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")) {
+        document.getElementById("noVNC_paste_btn").classList.remove("hidden");
+        if (
+          WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")
+        ) {
           status("Connected (encrypted) to " + desktopName, "normal");
         } else {
           status("Connected (unencrypted) to " + desktopName, "normal");
@@ -262,19 +301,40 @@
         cancelPendingReconnect();
         retryCount++;
         var secs = Math.ceil(RETRY_INTERVAL / 1000);
-        status("Gateway unavailable — retrying in " + secs + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
+        status(
+          "Gateway unavailable — retrying in " +
+            secs +
+            "s (" +
+            retryCount +
+            "/" +
+            MAX_RETRIES +
+            ")",
+          "warn",
+        );
         var countdown = secs;
         retryCountdownId = setInterval(function () {
           countdown--;
           if (countdown > 0) {
-            status("Gateway unavailable — retrying in " + countdown + "s (" + retryCount + "/" + MAX_RETRIES + ")", "warn");
+            status(
+              "Gateway unavailable — retrying in " +
+                countdown +
+                "s (" +
+                retryCount +
+                "/" +
+                MAX_RETRIES +
+                ")",
+              "warn",
+            );
           } else {
             clearInterval(retryCountdownId);
             retryCountdownId = null;
           }
         }, 1000);
         retryTimeout = setTimeout(function () {
-          if (retryCountdownId) { clearInterval(retryCountdownId); retryCountdownId = null; }
+          if (retryCountdownId) {
+            clearInterval(retryCountdownId);
+            retryCountdownId = null;
+          }
           retryTimeout = null;
           status("Reconnecting…", "normal");
           reconnect(lastPassword);
@@ -283,9 +343,12 @@
 
       // In local dev (port 15100), gateway-controller runs on port 15102.
       // In production, Caddy rewrites /gateway/* to /cgi-bin/* on the controller.
-      var GATEWAY_URL = window.location.port === "15100"
-        ? "http://" + window.location.hostname + ":15102/cgi-bin/start-gateway"
-        : "/gateway/cgi-bin/start-gateway";
+      var GATEWAY_URL =
+        window.location.port === "15100"
+          ? "http://" +
+            window.location.hostname +
+            ":15102/cgi-bin/start-gateway"
+          : "/gateway/cgi-bin/start-gateway";
 
       function showStartGateway() {
         cancelPendingReconnect();
@@ -436,6 +499,15 @@
     >
       <div id="noVNC_left_dummy_elem"></div>
       <div id="noVNC_status" class="flex-1 text-center">Loading</div>
+      <div class="text-right pr-2 pb-2">
+        <button
+          id="noVNC_paste_btn"
+          class="hidden px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold rounded cursor-pointer transition"
+          title="Paste clipboard into VNC"
+        >
+          Paste
+        </button>
+      </div>
     </div>
   </body>
 </html>
