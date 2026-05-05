@@ -235,9 +235,27 @@
         document.getElementById("noVNC_status").textContent = text;
       }
 
+      function pasteClipboard() {
+        if (!rfb) return;
+        navigator.clipboard.readText().then(function (text) {
+          rfb.clipboardPasteFrom(text);
+          rfb.sendKey(0xFFE3, "ControlLeft", true);   // Ctrl down
+          rfb.sendKey(0x0076, "KeyV", true);           // V down
+          rfb.sendKey(0x0076, "KeyV", false);          // V up
+          rfb.sendKey(0xFFE3, "ControlLeft", false);  // Ctrl up
+        }).catch(function () {
+          status("Clipboard access denied — allow clipboard permission in browser", "warn");
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        document.getElementById("noVNC_paste_btn").addEventListener("click", pasteClipboard);
+      });
+
       function connected(e) {
         retryCount = 0;
         cancelPendingReconnect();
+        document.getElementById("noVNC_paste_btn").classList.remove("hidden");
         if (WebUtil.getConfigVar("encrypt", window.location.protocol === "https:")) {
           status("Connected (encrypted) to " + desktopName, "normal");
         } else {
@@ -436,6 +454,7 @@
     >
       <div id="noVNC_left_dummy_elem"></div>
       <div id="noVNC_status" class="flex-1 text-center">Loading</div>
+      <button id="noVNC_paste_btn" class="hidden px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold rounded cursor-pointer transition" title="Paste clipboard into VNC">Paste</button>
     </div>
   </body>
 </html>
