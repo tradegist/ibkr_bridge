@@ -35,7 +35,7 @@ services:
       TWS_PASSWORD: ${TWS_PASSWORD:?Set TWS_PASSWORD in .env}
       TRADING_MODE: ${TRADING_MODE:-paper}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:?Set VNC_SERVER_PASSWORD in .env}
-      AUTO_RESTART_TIME: "11:30 PM"
+      AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-11:30 PM}
       TWOFA_TIMEOUT_ACTION: exit
       RELOGIN_AFTER_TWOFA_TIMEOUT: "no"
       EXISTING_SESSION_DETECTED_ACTION: primary
@@ -150,6 +150,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       ALERT_REPORT_EMAIL_TO: ${ALERT_REPORT_EMAIL_TO:-}
       ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      VNC_DOMAIN: ${VNC_DOMAIN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     expose:

@@ -11,13 +11,23 @@ if [ -n "$COMPOSE_PROJECT_NAME" ]; then
 fi
 
 stop_gateway() {
-  # Stops the running ib-gateway container (if any) to break the restart loop
-  # after a 2FA timeout. Uses the same label filters as the event watcher.
-  running_id=$(docker ps -q "$@")
-  if [ -n "$running_id" ]; then
-    echo "[monitor] stopping restarted ib-gateway ($running_id) to break restart loop"
-    docker stop "$running_id"
-  fi
+  # Stops the restarted ib-gateway container to break the restart loop after a
+  # 2FA timeout. Retries up to 5 times (2s apart) because docker ps may return
+  # empty if the container hasn't finished restarting when the die event fires.
+  i=0
+  while [ $i -lt 5 ]; do
+    stopped=0
+    for running_id in $(docker ps -q "$@"); do
+      echo "[monitor] stopping restarted ib-gateway ($running_id) to break restart loop"
+      docker stop "$running_id"
+      stopped=1
+    done
+    [ $stopped -eq 1 ] && return
+    i=$((i + 1))
+    echo "[monitor] waiting for ib-gateway to restart (attempt $i/5)..."
+    sleep 2
+  done
+  echo "[monitor] no running ib-gateway found after retries — restart loop may continue" >&2
 }
 
 send_alert() {
@@ -40,9 +50,9 @@ send_alert() {
 Project:      $project
 Container ID: $container_id
 
-Authenticate via VNC, then start the gateway:
+Open the VNC page and click 'Start Gateway', then complete 2FA:
 
-  curl -X POST https://<your-domain>/cgi-bin/start-gateway
+  https://${VNC_DOMAIN:-vnc.example.com}
 "
   else
     subj="[$project] ib-gateway stopped unexpectedly (exit $exit_code)"

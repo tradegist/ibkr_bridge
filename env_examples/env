@@ -36,6 +36,14 @@ API_TOKEN=
 # order timestamps, and fill times reported by the broker.
 TIME_ZONE=America/New_York
 
+# IBC scheduled daily restart time (default: "11:30 PM").
+# IBC restarts IB Gateway at this time each day so it can reconnect before
+# IBKR's nightly ~11:45 PM ET session reset, writing an autorestart file that
+# allows the next start to skip 2FA. Change this if your server runs in a
+# different timezone (set TIME_ZONE accordingly) or if you want a different
+# restart window. Format: "HH:MM AM|PM" in the timezone set by TIME_ZONE.
+# AUTO_RESTART_TIME=11:30 PM
+
 # Bridge service log level (default: INFO)
 # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
 # LOG_LEVEL=INFO
