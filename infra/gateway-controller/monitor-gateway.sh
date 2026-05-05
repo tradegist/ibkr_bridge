@@ -12,12 +12,12 @@ fi
 
 stop_gateway() {
   # Stops the restarted ib-gateway container to break the restart loop after a
-  # 2FA timeout. Retries up to 5 times (2s apart) because docker ps may return
-  # empty if the container hasn't finished restarting when the die event fires.
+  # 2FA timeout. Retries up to 5 times (2s apart) because the container may be
+  # in restarting/exited state (not yet running) when the die event fires.
   i=0
   while [ $i -lt 5 ]; do
     stopped=0
-    for running_id in $(docker ps -q "$@"); do
+    for running_id in $(docker ps -q --filter status=running --filter status=restarting "$@"); do
       echo "[monitor] stopping restarted ib-gateway ($running_id) to break restart loop"
       docker stop "$running_id"
       stopped=1
