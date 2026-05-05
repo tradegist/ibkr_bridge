@@ -1,7 +1,7 @@
 #!/bin/sh
 # Watches ib-gateway for unexpected exits and sends an email alert via Resend.
-# A stop caused by 2FA timeout is identified by the presence of "Second Factor
-# Authentication" in the final log lines and is silently ignored.
+# A 2FA timeout stops the (restarted) container to break the restart loop and
+# sends an alert prompting the user to authenticate via VNC.
 
 # POSIX sh has no arrays; use positional params to hold filter args so each
 # --filter value stays a single shell word even if it contains whitespace.
@@ -10,9 +10,30 @@ if [ -n "$COMPOSE_PROJECT_NAME" ]; then
   set -- "$@" --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
 fi
 
+stop_gateway() {
+  # Stops the restarted ib-gateway container to break the restart loop after a
+  # 2FA timeout. Retries up to 5 times (2s apart) because the container may be
+  # in restarting/exited state (not yet running) when the die event fires.
+  i=0
+  while [ $i -lt 5 ]; do
+    stopped=0
+    for running_id in $(docker ps -q --filter status=running --filter status=restarting "$@"); do
+      echo "[monitor] stopping restarted ib-gateway ($running_id) to break restart loop"
+      docker stop "$running_id"
+      stopped=1
+    done
+    [ $stopped -eq 1 ] && return
+    i=$((i + 1))
+    echo "[monitor] waiting for ib-gateway to restart (attempt $i/5)..."
+    sleep 2
+  done
+  echo "[monitor] no running ib-gateway found after retries — restart loop may continue" >&2
+}
+
 send_alert() {
   container_id="$1"
   exit_code="$2"
+  alert_type="${3:-unexpected}"  # "2fa" or "unexpected"
 
   if [ -z "$RESEND_API_KEY" ] || [ -z "$ALERT_REPORT_EMAIL_TO" ]; then
     echo "[monitor] RESEND_API_KEY or ALERT_REPORT_EMAIL_TO not set — skipping alert"
@@ -22,11 +43,20 @@ send_alert() {
   from="${ALERT_EMAIL_FROM:-onboarding@resend.dev}"
   project="${COMPOSE_PROJECT_NAME:-ib-gateway}"
 
-  payload=$(jq -n \
-    --arg from "$from" \
-    --arg to   "$ALERT_REPORT_EMAIL_TO" \
-    --arg subj "[$project] ib-gateway stopped unexpectedly (exit $exit_code)" \
-    --arg body "ib-gateway exited unexpectedly.
+  if [ "$alert_type" = "2fa" ]; then
+    subj="[$project] ib-gateway needs 2FA — authenticate via VNC"
+    body="ib-gateway exited after a 2FA timeout and has been stopped to prevent a restart loop.
+
+Project:      $project
+Container ID: $container_id
+
+Open the VNC page and click 'Start Gateway', then complete 2FA:
+
+  https://${VNC_DOMAIN:-vnc.example.com}
+"
+  else
+    subj="[$project] ib-gateway stopped unexpectedly (exit $exit_code)"
+    body="ib-gateway exited unexpectedly.
 
 Project:      $project
 Container ID: $container_id
@@ -42,7 +72,14 @@ If the container has been pruned, find the most recent one by label:
   docker ps -a \\
     --filter label=com.docker.compose.service=ib-gateway \\
     --filter label=com.docker.compose.project=$project
-" \
+"
+  fi
+
+  payload=$(jq -n \
+    --arg from "$from" \
+    --arg to   "$ALERT_REPORT_EMAIL_TO" \
+    --arg subj "$subj" \
+    --arg body "$body" \
     '{from: $from, to: [$to], subject: $subj, text: $body}')
 
   response_file=$(mktemp)
@@ -70,12 +107,14 @@ If the container has been pruned, find the most recent one by label:
 echo "[monitor] started, watching for ib-gateway exit events..."
 
 while true; do
-  docker events "$@" --filter event=die --format '{{.ID}} {{.Actor.Attributes.exitCode}}' \
+  docker events "$@" --filter event=die --format '{{.Actor.ID}} {{.Actor.Attributes.exitCode}}' \
   | while IFS=' ' read -r container_id exit_code; do
     echo "[monitor] ib-gateway stopped (exit $exit_code, container $container_id)"
 
     if docker logs "$container_id" --tail=50 2>&1 | grep -q "Second Factor Authentication"; then
-      echo "[monitor] 2FA timeout detected — no alert"
+      echo "[monitor] 2FA timeout detected — stopping container and sending alert"
+      stop_gateway "$@"
+      send_alert "$container_id" "$exit_code" "2fa"
     else
       echo "[monitor] unexpected stop — sending alert"
       send_alert "$container_id" "$exit_code"

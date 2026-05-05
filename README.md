@@ -246,11 +246,11 @@ These endpoints are served on the **VNC domain** (not `SITE_DOMAIN`), accessible
 
 Six containers in a single Docker network:
 
-- **`ib-gateway`** — [IB Gateway](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php) running in Docker via [gnzsnz/ib-gateway](https://github.com/gnzsnz/ib-gateway). Exposes the TWS API (port 4003 live / 4004 paper) and VNC (port 5900) for 2FA authentication.
+- **`ib-gateway`** — [IB Gateway](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php) running in Docker via [gnzsnz/ib-gateway](https://github.com/gnzsnz/ib-gateway). Exposes the TWS API (port 4003 live / 4004 paper) and VNC (port 5900) for 2FA authentication. Configured with `AUTO_RESTART_TIME` (default `11:30 PM` in `TIME_ZONE`, `America/New_York` by default, overridable) so IBC proactively restarts before IBKR's nightly ~11:45 PM ET session reset, writing an autorestart file that allows the next start to skip 2FA. `restart: unless-stopped` keeps the container running across these daily restarts — typically requiring 2FA only once per week when IBKR expires the session.
 - **`bridge`** — Python aiohttp service that connects to the Gateway via [ib_async](https://github.com/ib-api-reloaded/ib_async) and exposes the REST API. Handles auto-reconnection with exponential backoff and a periodic watchdog.
 - **`novnc`** — [noVNC](https://novnc.com/) browser-based VNC client for accessing the Gateway GUI. Used for 2FA authentication and monitoring. Auto-reconnects in the browser on unclean disconnect.
 - **`caddy`** — [Caddy 2](https://caddyserver.com/) reverse proxy with automatic HTTPS via Let's Encrypt. Routes API traffic to the bridge, VNC traffic to noVNC.
-- **`gateway-controller`** — Lightweight CGI container with Docker socket access. Provides HTTP endpoints to start/check the Gateway container without SSH. Also runs a background monitor that sends email alerts (via Resend) when ib-gateway stops unexpectedly (2FA timeouts are silently ignored).
+- **`gateway-controller`** — Lightweight CGI container with Docker socket access. Provides HTTP endpoints to start/check the Gateway container without SSH. Also runs a background monitor that watches for ib-gateway exits: on a 2FA timeout it stops the restarted container (preventing an infinite restart loop) and sends an alert email prompting you to authenticate via VNC; on any other unexpected exit it sends a crash alert.
 - **`autoheal`** — Watches containers labelled `autoheal=true` and restarts them when they become unhealthy. Used to restart `novnc` when the VNC backend is unreachable.
 
 ## Quick Start
@@ -368,6 +368,7 @@ Configuration is split into two files to separate container config from CLI-only
 | `API_TOKEN`             | Yes      | —                       | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                                                                                                                                                             |
 | `JAVA_HEAP_SIZE`        | No       | `768`                   | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                                                                                                                                                        |
 | `TIME_ZONE`             | No       | `America/New_York`      | Timezone (tz database format)                                                                                                                                                                                                             |
+| `AUTO_RESTART_TIME`     | No       | `11:30 PM`              | IBC scheduled daily restart time (`HH:MM AM|PM`, interpreted in `TIME_ZONE`). The default `11:30 PM` is 15 minutes before IBKR's nightly ~11:45 PM ET session reset — if `TIME_ZONE` is not `America/New_York`, set this accordingly. Writes an autorestart file so the next start skips 2FA.  |
 | `VNC_BASIC_AUTH_USER`   | No       | `admin`                 | Username for VNC domain basic auth                                                                                                                                                                                                        |
 | `VNC_BASIC_AUTH_HASH`   | No       | auto-computed           | Bcrypt hash for VNC basic auth. Auto-derived from `VNC_SERVER_PASSWORD` at deploy time via `htpasswd` (macOS built-in; `apt install apache2-utils` on Linux). On Windows, pre-compute with `htpasswd -nbB admin <password>` and set here. |
 | `WS_BUFFER_SIZE`        | No       | `500`                   | Ring buffer size for WebSocket event replay on client reconnect                                                                                                                                                                           |
@@ -690,6 +691,6 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 - [x] TypeScript type definitions (`@tradegist/ibkr-bridge-types`, not yet published)
 - [x] E2E tests against paper account
 - [x] Deploy modes: standalone (Terraform) + shared (existing droplet)
-- [x] Crash alerting via email (Resend) — 2FA stops ignored, unexpected exits notified
+- [x] Crash alerting via email (Resend) — 2FA timeouts stop the container + send alert, unexpected exits send a crash alert
 - [x] VNC auto-reconnect — browser retries on disconnect, no manual refresh needed
 - [ ] Cancel order endpoint
