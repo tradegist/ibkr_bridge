@@ -157,7 +157,7 @@ services:
       - "9000"
 
   autoheal:
-    image: willfarrell/autoheal@sha256:84e074a95e8419db9e767cf095c992cc79c1b643773ffc61353be98b5be722e2
+    image: willfarrell/autoheal@sha256:12caeae0c759b717a0971e6de459c1d621b5310dc7b8004e4e8de7b95b96e1e5
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
