@@ -48,6 +48,7 @@ types: ## Regenerate TypeScript + Python types from Pydantic models
 	PYTHONPATH=services/bridge $(PYTHON) schema_gen.py bridge_models > types/typescript/http/types.schema.json
 	npx --yes json-schema-to-typescript types/typescript/http/types.schema.json > types/typescript/http/types.d.ts
 	@echo "Generated types/typescript/http/types.d.ts"
+	$(PYTHON) gen_ts_barrels.py
 	$(PYTHON) gen_python_types.py
 
 test: ## Run unit tests
@@ -56,10 +57,12 @@ test: ## Run unit tests
 typecheck: ## Run mypy strict type checking
 	MYPYPATH=services/bridge $(PYTHON) -m mypy services/bridge/
 	$(PYTHON) -m mypy services/shared/
+	$(PYTHON) -m mypy schema_gen.py gen_python_types.py gen_ts_barrels.py
 	$(PYTHON) -m mypy types/python/ibkr_bridge_types/
+	npx --yes -p typescript@5.6 tsc --noEmit -p types/typescript/
 
 lint: ## Run ruff linter (use FIX=1 to auto-fix)
-	$(PYTHON) -m ruff check services/bridge/ services/shared/ cli/ schema_gen.py gen_python_types.py types/python/ibkr_bridge_types/ $(if $(FIX),--fix)
+	$(PYTHON) -m ruff check services/bridge/ services/shared/ cli/ schema_gen.py gen_python_types.py gen_ts_barrels.py types/python/ibkr_bridge_types/ $(if $(FIX),--fix)
 	@if grep -rn '__all__' services/ types/ cli/ --include='*.py'; then echo "ERROR: __all__ is banned — use explicit re-exports"; exit 1; fi
 
 e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)

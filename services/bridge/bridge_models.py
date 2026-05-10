@@ -7,7 +7,7 @@
 !! uses it (e.g. client/, bridge_routes/).
 """
 
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -156,6 +156,15 @@ WsEventType = Literal[
     "disconnected",
 ]
 
+# Provenance of a fill event:
+# - ``live`` — emitted by ib_async's push callbacks (execDetailsEvent /
+#   commissionReportEvent). Only fires for fills the bridge's IBKR user
+#   is authorised to see in real time (typically same-user orders).
+# - ``reconciled`` — emitted by the positionEvent → reqExecutions path
+#   to surface fills from other users on the same account.
+# Status events (``connected`` / ``disconnected``) carry ``source=None``.
+WsEventSource = Literal["live", "reconciled"]
+
 
 class WsComboLeg(BaseModel):
     """Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0)."""
@@ -259,13 +268,43 @@ class WsFill(BaseModel):
     time: str
 
 
-class WsEnvelope(BaseModel):
-    """Top-level WebSocket message wrapper."""
+class WsStatusEnvelope(BaseModel):
+    """Connection status event — emitted on (re)connect / disconnect.
+
+    Carries no fill payload because there is no execution to describe.
+    """
 
     model_config = ConfigDict(extra="allow")
 
-    type: WsEventType
+    type: Literal["connected", "disconnected"]
     seq: int
     timestamp: str
-    fill: WsFill | None = None
+
+
+class WsFillEnvelope(BaseModel):
+    """Execution fill event — every fill the bridge surfaces.
+
+    ``fill`` and ``source`` are required: every emitted fill carries a
+    full payload and a provenance label (``"live"`` or ``"reconciled"``).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: Literal["execDetailsEvent", "commissionReportEvent"]
+    seq: int
+    timestamp: str
+    fill: WsFill
+    source: WsEventSource
+
+
+# Discriminated union over the ``type`` field. Pydantic uses the
+# discriminator to route ``model_validate`` to the correct concrete
+# class. Consumers should validate via
+# ``TypeAdapter(WsEnvelope).validate_python(data)`` rather than calling
+# ``WsEnvelope.model_validate(...)`` — ``WsEnvelope`` is a type alias,
+# not a class.
+WsEnvelope: TypeAlias = Annotated[
+    WsStatusEnvelope | WsFillEnvelope,
+    Field(discriminator="type"),
+]
 

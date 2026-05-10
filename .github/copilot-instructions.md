@@ -34,7 +34,7 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 ## Type Safety (MANDATORY)
 
 - **Python >= 3.11 is required.** The project uses `X | None` union syntax natively (no `from __future__ import annotations`). Docker images use `python:3.11-slim`. Local dev uses a `.venv` created from the latest Homebrew Python.
-- **Run `make typecheck` before copying ANY Python file to the droplet.** This is non-negotiable. If mypy fails, do NOT push the code.
+- **Run `make typecheck` before copying ANY Python file to the droplet.** This is non-negotiable. If mypy fails, do NOT push the code. `make typecheck` also runs `tsc --noEmit` on `types/typescript/` so a broken or removed export in the generated `.d.ts` files (e.g. a Pydantic Literal alias dropped from the JSON Schema → TS pipeline) fails the build via the barrel's re-exports.
 - **Run `make test` before assuming work is done and before copying ANY file to the droplet.** If tests fail, fix them first. Never deploy untested code.
 - **Run `make test` and `make typecheck` after every code change**, even refactors. Do not wait until the end — verify immediately.
 - **Run E2E tests after modifying any E2E test OR infrastructure file.** Infrastructure files include `docker-compose*.yml`, `Dockerfile`, `Caddyfile`, and anything under `infra/`. E2E tests require the Docker stack with IB Gateway — `make test` (unit tests) does not run them. Never assume an E2E test passes without actually running the stack. The E2E workflow is:
@@ -90,7 +90,10 @@ This project (`ibkr_bridge`) and its sibling project `relayport` share the same 
 - **Trading mode** is determined by `TRADING_MODE` env var (`paper` or `live`). Paper uses port 4004, live uses port 4003.
 - **Client ID is hardcoded to 1.** Only one `IBClient` instance connects to the Gateway at a time.
 - **Namespace delegation.** Orders and trades are separated into `OrdersNamespace` and `TradesNamespace`, each receiving the `ib_async.IB` instance. This keeps domain logic isolated from connection management.
-- **Event wiring.** After connect, `subscribe_events()` registers `execDetailsEvent` and `commissionReportEvent` callbacks on the `IB` object. These map ib_async fills to `WsEnvelope` and broadcast via `EventHub`. Events survive reconnections because they're registered on the `IB` object, not the connection.
+- **Event wiring.** Before connect, `subscribe_events()` registers four ib_async callbacks on the `IB` object: `execDetailsEvent` and `commissionReportEvent` (live same-user fills), `positionEvent` (triggers cross-user reconcile), and `connectedEvent` (arms the initial-sync gate). All survive reconnects because they live on the `IB` object, which is created once in `__init__` (`_createEvents()`) and only has its wrapper state reset on disconnect. **Subscribe before `client.connect()`** so `connectedEvent` fires for the very first connection.
+- **Cross-user fill reconciliation.** ib_async only emits `execDetailsEvent` for **live** fills (`isLive=True` gate in `wrapper.execDetails`) and only emits `commissionReportEvent` when the trade is in `permId2Trade` — neither is true for orders placed by a *different* IBKR user on the same account (e.g. mobile login as User B while the bridge runs as User A). To surface those fills, `_on_position` schedules `_reconcile_executions`, which calls `reqExecutionsAsync()` and **manually broadcasts** each returned `Fill` as `commissionReportEvent`. Concurrent positionEvents are coalesced (single in-flight task). An initial-sync gate (`INITIAL_SYNC_GRACE_SECONDS=1.0`, armed by `connectedEvent`) suppresses reconciles during the post-connect position flood. A pre-fetch settle delay (`RECONCILE_SETTLE_SECONDS=1.0`) lets the matching commission report land on the same `Fill` before we read it.
+- **execId dedupe set.** `IBClient._broadcast_exec_ids: set[str]` tracks every `commissionReportEvent` execId broadcast in the current session. The reconcile path checks the set and skips already-broadcast fills. **`execDetailsEvent` deliberately does NOT add to the set** — only commissionReport gates reconcile. This handles the edge case where the live commissionReport callback never fires (e.g., `permId2Trade` gate fails for completed external orders): the reconcile path is still free to fill the gap with full commission data. The set is cleared in `_on_connected` because `reqExecutions` is current-day-only — yesterday's execIds become irrelevant after a daily session reset.
+- **WS event `source` field.** Every fill envelope carries `source: "live" | "reconciled"` indicating provenance. Status events (`connected` / `disconnected`) carry `source: null`. Consumers can use this to prefer one path or filter telemetry.
 
 ## Local Development
 
@@ -222,8 +225,12 @@ The deployment mode is controlled by `DEPLOY_MODE` in `.env` (required, validate
   - Each subscriber gets an `asyncio.Queue` for delivery.
   - `broadcast()` assigns a monotonic `seq` number, appends to buffer, and pushes to all subscriber queues.
   - `replay(from_seq)` returns buffered events with `seq > from_seq`.
-- **`IBClient.subscribe_events()`** wires `ib.execDetailsEvent` and `ib.commissionReportEvent` callbacks to the hub. Called once after initial connection. Events survive reconnections (registered on the `IB` object, not the connection).
-- **Message format**: `WsEnvelope` (type, seq, timestamp, fill). Event types: `execDetailsEvent`, `commissionReportEvent`, `connected`, `disconnected`.
+- **`IBClient.subscribe_events()`** wires four ib_async callbacks on the `IB` object: `execDetailsEvent` and `commissionReportEvent` (live same-user fills), `positionEvent` (cross-user reconcile trigger), and `connectedEvent` (initial-sync gate). Called once before `client.connect()` so `connectedEvent` fires for the first connection. All survive reconnects (events live on the `IB` object, not the connection).
+- **Message format**: `WsEnvelope` is a discriminated union over `type` of two concrete shapes:
+  - `WsStatusEnvelope` (`type`, `seq`, `timestamp`) for `connected` / `disconnected`.
+  - `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`) for `execDetailsEvent` / `commissionReportEvent`. `fill` and `source` are required (no Optional). `source` is `"live"` for ib_async push callbacks or `"reconciled"` for the positionEvent → reqExecutions path. Cross-user reconcile fills are always emitted as `commissionReportEvent` with `source="reconciled"`.
+
+  In Python, `WsEnvelope` is a `TypeAlias` (not a class). Consumers validating raw dicts must use `TypeAdapter(WsEnvelope).validate_python(data)` — calling `WsEnvelope.model_validate(...)` will not work. In TypeScript, narrowing on `type` gives full type safety on the discriminated branches. `schema_gen.py` accepts the union directly in `SCHEMA_MODELS` (Pydantic's `TypeAdapter` handles `Annotated[Union, Field(discriminator=...)]`), and `json-schema-to-typescript` emits `export type WsEnvelope = WsStatusEnvelope | WsFillEnvelope` automatically.
 - **Zombie detection**: `WebSocketResponse(heartbeat=WS_HEARTBEAT_INTERVAL)` sends pings; aiohttp auto-closes unresponsive connections. Cleanup runs in `try/finally` to unsubscribe.
 - **Max subscribers**: `WS_MAX_SUBSCRIBERS` (default 10). Exceeding returns WS close code 4029.
 - **Reconnect replay**: client passes `?last_seq=N` to receive missed events from the ring buffer.
@@ -283,13 +290,14 @@ services/bridge/
   main.py                  # Entrypoint (IB connection + HTTP server startup)
   bridge_models.py         # Pydantic models (all request/response types + Literal aliases)
   client/                  # IB Gateway client (package)
-    __init__.py            # IBClient class (connection, reconnection, watchdog, event wiring)
+    __init__.py            # IBClient class (connection, reconnection, watchdog, event wiring, reconcile)
     event_hub.py           # EventHub (pub/sub broadcast + ring buffer for WS replay)
     orders.py              # OrdersNamespace (place orders)
     trades.py              # TradesNamespace (list trades + fills)
     test_event_hub.py      # Tests for EventHub
     test_orders.py         # Tests for orders
     test_trades.py         # Tests for trades
+    test_reconcile.py      # Tests for positionEvent → reqExecutions reconcile path
   bridge_routes/           # HTTP API
     __init__.py            # Route orchestrator (create_routes)
     constants.py           # Shared constants (AUTH_PREFIX, client_key, hub_key)
@@ -336,7 +344,9 @@ This project has **two model locations** — a shared source of truth (currently
 | `ListTradesResponse`     | Outbound  | `GET /ibkr/trades` response (array of TradeDetail)       |
 | `TradeDetail`            | Outbound  | Order + status + fills                                   |
 | `FillDetail`             | Outbound  | Single execution fill within a trade                     |
-| `WsEnvelope`             | Outbound  | WebSocket message wrapper (type, seq, timestamp, fill)   |
+| `WsEnvelope`             | Outbound  | Discriminated union: `WsStatusEnvelope \| WsFillEnvelope` |
+| `WsStatusEnvelope`       | Outbound  | Connection status event (type, seq, timestamp)            |
+| `WsFillEnvelope`         | Outbound  | Fill event (type, seq, timestamp, fill, source)           |
 | `WsFill`                 | Outbound  | Fill payload (contract + execution + commissionReport)   |
 | `WsContract`             | Outbound  | Mirrors `ib_async.Contract` (ib_async 2.1.0)             |
 | `WsExecution`            | Outbound  | Mirrors `ib_async.Execution` (ib_async 2.1.0)            |
@@ -344,10 +354,10 @@ This project has **two model locations** — a shared source of truth (currently
 | `WsComboLeg`             | Outbound  | Mirrors `ib_async.ComboLeg` (ib_async 2.1.0)             |
 | `WsDeltaNeutralContract` | Outbound  | Mirrors `ib_async.DeltaNeutralContract` (ib_async 2.1.0) |
 
-Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEventType` — all `Literal` types used across models.
+Type aliases: `Action`, `ExecSide`, `OrderType`, `SecType`, `TimeInForce`, `WsEventType`, `WsEventSource` — all `Literal` types used across models.
 
 - `TradeDetail.action` and `TradeDetail.orderType` are `str` (not `Action`/`OrderType`) because IB Gateway returns values beyond our constrained Literals for existing orders (e.g. `STP`, `TRAIL`).
-- `WsEnvelope.type` uses `WsEventType` as the exported WebSocket event discriminator. Do not document or rely on a separate public `WsStatusType` alias unless it is also emitted by the schema/type generation pipeline.
+- `WsEnvelope` is a discriminated union (TypeAlias). The Python `WsEventType` literal still exists for documentation but the canonical discriminator is the `type` field on each concrete branch (`WsStatusEnvelope.type` and `WsFillEnvelope.type`). The narrowed Python literals (`WsStatusType`, `WsFillEventType`) are private to `client/__init__.py` — do not export them.
 - **WS event models mirror `ib_async` 2.1.0 exactly** — same field names, same nesting (`WsFill.contract`, `WsFill.execution`, `WsFill.commissionReport`). When bumping ib_async, update these models to match.
 
 ## Gateway Controller
@@ -409,7 +419,7 @@ export { IbkrBridge, IbkrBridgeHttp };
       ...
   ```
 - **Usage:** `import { IbkrBridgeHttp } from "@tradegist/ibkr-bridge-types"`
-- `schema_gen.py` owns the `SCHEMA_MODELS` dict that lists which top-level models go into the JSON Schema. **To add a new model to the TypeScript types, add it to `SCHEMA_MODELS` in `schema_gen.py` and update `types/typescript/http/index.d.ts` re-exports.** The Python types package copies the entire `bridge_models.py` file automatically.
+- `schema_gen.py` owns the `SCHEMA_MODELS` dict that lists which top-level models go into the JSON Schema. **To add a new public model, add it to `SCHEMA_MODELS` and run `make types` — that's the only required step.** Entries may be `BaseModel` subclasses **or** discriminated-union `TypeAlias` values (e.g. `Annotated[A | B, Field(discriminator="type")]`); Pydantic's `TypeAdapter` handles both. Class aliases like `Foo = SomeBaseModel` produce `export type Foo = SomeBaseModel` in TypeScript via an `allOf: [$ref]` schema entry. Everything under `types/` except the top-level barrel and package manifests is regenerated by `make types`. **Do not hand-edit `types/python/ibkr_bridge_types/__init__.py` or `types/typescript/http/index.d.ts`** — both are auto-generated and carry an `AUTO-GENERATED` header.
 
 ## Python Types Package
 
@@ -425,7 +435,7 @@ export { IbkrBridge, IbkrBridgeHttp };
       models.py                 # All models + type aliases (generated from bridge_models.py)
   ```
 - **Usage:** `from ibkr_bridge_types import PlaceOrderPayload, WsEnvelope, Action`
-- **Auto-generated** — `models.py` is extracted from `bridge_models.py` by `gen_python_types.py`. Run `make types` to regenerate. Do not edit `models.py` manually.
+- **Auto-generated** — both `models.py` and `__init__.py` are produced by `gen_python_types.py`. `models.py` mirrors `bridge_models.py`; `__init__.py` is built by AST-walking the source for top-level public class/literal/alias definitions. Run `make types` to regenerate. Do not edit either file manually.
 - **Covered by `make lint` and `make typecheck`** — `types/python/ibkr_bridge_types/` is included in both targets. Generated code must pass ruff and mypy like any other Python module.
 - When bumping `ib_async`, update `bridge_models.py` and run `make types` to regenerate both TS and Python types.
 
@@ -521,8 +531,9 @@ terraform/
   variables.tf            # Terraform variables (infrastructure only)
   outputs.tf              # Droplet IP, VNC URL, Site URL, SSH key
   cloud-init.sh           # Docker install + project directory
-schema_gen.py             # JSON Schema generator (Pydantic → TS types)
-gen_python_types.py       # Python types generator (bridge_models.py → models.py)
+schema_gen.py             # JSON Schema generator (Pydantic → JSON Schema)
+gen_ts_barrels.py         # TS barrel generator (parses types.d.ts → index.d.ts)
+gen_python_types.py       # Python types generator (bridge_models.py → models.py + __init__.py)
 types/
   typescript/              # @tradegist/ibkr-bridge-types npm package
     index.d.ts            # Barrel: exports IbkrBridgeHttp namespace
