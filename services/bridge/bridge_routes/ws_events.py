@@ -68,12 +68,14 @@ async def handle_ws_events(request: web.Request) -> web.WebSocketResponse:
         # instead of blocking forever on queue.get().
         queue_task: asyncio.Task[dict[str, object]] | None = None
         ws_task: asyncio.Task[WSMessage] | None = None
+        # The handler runs as a coroutine; the loop is always available.
+        loop = asyncio.get_running_loop()
         try:
             while not ws.closed:
                 if queue_task is None:
-                    queue_task = asyncio.ensure_future(queue.get())
+                    queue_task = loop.create_task(queue.get())
                 if ws_task is None:
-                    ws_task = asyncio.ensure_future(ws.receive())
+                    ws_task = loop.create_task(ws.receive())
 
                 done, _ = await asyncio.wait(
                     {queue_task, ws_task},

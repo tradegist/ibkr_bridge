@@ -114,7 +114,7 @@ class TestInitialSyncGate(unittest.IsolatedAsyncioTestCase):
     async def test_on_connected_resets_sync_and_schedules_mark(self) -> None:
         client = _make_client()
         client._initial_sync_complete = True  # pretend we were armed
-        with patch.object(asyncio.get_event_loop(), "call_later") as call_later:
+        with patch.object(asyncio.get_running_loop(), "call_later") as call_later:
             client._on_connected()
         self.assertFalse(client._initial_sync_complete)
         call_later.assert_called_once()
@@ -319,13 +319,19 @@ class TestExecIdDedup(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(reconciled_exec_ids, {"NEW-1", "NEW-2"})
 
-    def test_on_connected_clears_exec_id_set(self) -> None:
+    async def test_on_connected_preserves_exec_id_set(self) -> None:
+        """Reconnect must not drop already-broadcast execIds — otherwise
+        a transient same-day reconnect would re-emit every fill of the
+        day as ``source="reconciled"``. The set persists for the
+        lifetime of the bridge process.
+        """
         client = _make_client()
         client._broadcast_exec_ids.update({"A", "B", "C"})
-        # Patch call_later to a no-op so we don't schedule on a stale loop.
-        with patch.object(asyncio.get_event_loop(), "call_later"):
+        # Patch call_later to a no-op so we don't schedule a real timer
+        # against the test loop.
+        with patch.object(asyncio.get_running_loop(), "call_later"):
             client._on_connected()
-        self.assertEqual(client._broadcast_exec_ids, set())
+        self.assertEqual(client._broadcast_exec_ids, {"A", "B", "C"})
 
 
 if __name__ == "__main__":

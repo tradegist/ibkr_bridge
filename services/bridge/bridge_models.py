@@ -156,13 +156,14 @@ WsEventType = Literal[
     "disconnected",
 ]
 
-# Provenance of a fill event:
+# Provenance of a fill event. Only present on ``WsFillEnvelope`` —
+# ``WsStatusEnvelope`` (connected / disconnected) has no ``source`` field
+# at all; consumers should not expect the key on status messages.
 # - ``live`` — emitted by ib_async's push callbacks (execDetailsEvent /
 #   commissionReportEvent). Only fires for fills the bridge's IBKR user
 #   is authorised to see in real time (typically same-user orders).
 # - ``reconciled`` — emitted by the positionEvent → reqExecutions path
 #   to surface fills from other users on the same account.
-# Status events (``connected`` / ``disconnected``) carry ``source=None``.
 WsEventSource = Literal["live", "reconciled"]
 
 

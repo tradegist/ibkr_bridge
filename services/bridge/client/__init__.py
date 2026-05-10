@@ -84,10 +84,14 @@ class IBClient:
         self._events_subscribed = False
         self._initial_sync_complete = False
         self._reconcile_task: asyncio.Task[None] | None = None
-        # execIds we've already broadcast as commissionReportEvent — used
-        # to suppress reconcile-path re-broadcasts. Cleared on connect
-        # (each daily session starts fresh; reqExecutions is current-day
-        # only, so old execIds are dead weight).
+        # execIds we've already broadcast as commissionReportEvent —
+        # used to suppress reconcile-path re-broadcasts. Persists for
+        # the lifetime of the bridge process (NOT cleared on reconnect):
+        # transient same-day reconnects must not re-emit fills the
+        # process has already broadcast. IB execIds are globally unique
+        # (the prefix encodes day + account + client), so stale entries
+        # from earlier sessions cannot collide with new fills — they're
+        # harmless ballast bounded by process lifetime.
         self._broadcast_exec_ids: set[str] = set()
         self.orders = OrdersNamespace(self.ib)
         self.trades = TradesNamespace(self.ib)
@@ -131,7 +135,9 @@ class IBClient:
     def on_disconnect(self) -> None:
         log.warning("Disconnected from IB Gateway — will reconnect")
         self._broadcast_status("disconnected")
-        task = asyncio.ensure_future(self._reconnect())
+        # ib_async dispatches disconnectedEvent on the running loop, so
+        # get_running_loop().create_task is the deterministic schedule.
+        task = asyncio.get_running_loop().create_task(self._reconnect())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
@@ -174,17 +180,23 @@ class IBClient:
         self.hub.broadcast(envelope.model_dump())
 
     def _on_connected(self) -> None:
-        """Arm the initial-sync gate AND clear the daily exec-id set.
+        """Arm the initial-sync gate on every (re)connect.
 
         ib_async fires positionEvent for each existing position right
         after connect; without the gate, every one would schedule a
-        reqExecutions call. The exec-id set is cleared because
-        reqExecutions only ever returns the current trading day —
-        yesterday's execIds are dead weight after a daily session reset.
+        reqExecutions call.
+
+        The exec-id dedupe set is deliberately *not* cleared here — a
+        transient same-day reconnect must not cause already-broadcast
+        fills to be re-emitted as ``source="reconciled"``. The set is
+        only reset by a fresh process (i.e. on bridge restart), at
+        which point ``reqExecutions`` will return today's fills and
+        the new process will broadcast them once.
         """
         self._initial_sync_complete = False
-        self._broadcast_exec_ids.clear()
-        loop = asyncio.get_event_loop()
+        # ib_async dispatches connectedEvent on the running loop, so
+        # get_running_loop() is the correct (non-deprecated) call.
+        loop = asyncio.get_running_loop()
         loop.call_later(INITIAL_SYNC_GRACE_SECONDS, self._mark_synced)
 
     def _mark_synced(self) -> None:
@@ -222,7 +234,9 @@ class IBClient:
             return
         if self._reconcile_task and not self._reconcile_task.done():
             return  # coalesce: an in-flight reconcile already covers this
-        task = asyncio.ensure_future(self._reconcile_executions())
+        # ib_async dispatches positionEvent on the running loop, so
+        # get_running_loop().create_task is the deterministic schedule.
+        task = asyncio.get_running_loop().create_task(self._reconcile_executions())
         self._reconcile_task = task
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
