@@ -93,7 +93,8 @@ def _ib(client: IBClient) -> Any:
 async def _await_reconcile(client: IBClient) -> None:
     """Await the in-flight reconcile task, with a None-guard for mypy."""
     task = client._reconcile_task
-    assert task is not None, "expected a reconcile task to be scheduled"
+    if task is None:
+        raise RuntimeError("expected a reconcile task to be scheduled")
     await task
 
 
@@ -152,8 +153,7 @@ class TestReconcileScheduling(unittest.IsolatedAsyncioTestCase):
             client._on_position(MagicMock())  # also coalesced
             self.assertIs(client._reconcile_task, first)
             gate.set()
-            assert first is not None
-            await first
+            await _await_reconcile(client)
         # Only one reqExecutions call despite 3 position events
         self.assertEqual(_ib(client).reqExecutionsAsync.await_count, 1)
 
