@@ -3,7 +3,8 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": false,
-    "moduleResolution": "node",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "target": "es2020",
     "lib": ["es2020"],
     "types": []
