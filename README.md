@@ -304,10 +304,13 @@ make destroy
 Use shared mode (`DEPLOY_MODE=shared`) when ibkr_bridge runs on a droplet that is already hosting another project (e.g. relayport). Caddy is provided by the host — ibkr_bridge deploys Caddy snippets to `/opt/caddy-shared/` and connects to the host's shared Docker network.
 
 ```bash
-# Set in .env.droplet
+# Set in .env.droplet (CLI-only config)
 DEPLOY_MODE=shared
 DROPLET_IP=1.2.3.4        # provided by the host project owner
 SSH_KEY=~/.ssh/shared-key # provided by the host project owner
+
+# Set in .env (pushed to the droplet so Compose can expand it)
+SHARED_NETWORK=relay-net  # must match the host project's network name
 
 make deploy
 ```
@@ -384,7 +387,7 @@ Configuration is split into two files to separate container config from CLI-only
 | `WS_BUFFER_SIZE`        | No          | `500`                   | Ring buffer size for WebSocket event replay on client reconnect                                                                                                                                                                                                                               |
 | `WS_MAX_SUBSCRIBERS`    | No          | `10`                    | Maximum simultaneous WebSocket subscribers                                                                                                                                                                                                                                                    |
 | `WS_HEARTBEAT_INTERVAL` | No          | `30`                    | WebSocket ping interval in seconds for zombie connection detection                                                                                                                                                                                                                            |
-| `SHARED_NETWORK`        | Shared mode | —                       | Docker network name for cross-project communication (e.g. `relay-net`). Required when `DEPLOY_MODE=shared`. The CLI idempotently creates this network on the droplet and applies `docker-compose.shared-network.yml` to mark it `external: true`.                                             |
+| `SHARED_NETWORK`        | Shared mode | —                       | Docker network name for cross-project communication (e.g. `relay-net`). Must be set in `.env` (not `.env.droplet`) so it gets pushed to the droplet for Compose to expand. Required when `DEPLOY_MODE=shared`. The CLI idempotently creates this network on the droplet and applies `docker-compose.shared-network.yml` to mark it `external: true`. |
 | `RESEND_API_KEY`        | No          | —                       | [Resend](https://resend.com) API key. Required to enable crash alerting.                                                                                                                                                                                                                      |
 | `ALERT_REPORT_EMAIL_TO` | No          | —                       | Recipient address for crash alert emails. Required to enable crash alerting.                                                                                                                                                                                                                  |
 | `ALERT_EMAIL_FROM`      | No          | `onboarding@resend.dev` | Sender address for alert emails. Must be a domain verified in your Resend account. Defaults to Resend's shared address if unset.                                                                                                                                                              |
@@ -625,7 +628,7 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 ├── env_examples/                  # Configuration templates (make setup copies to .<name>)
 │   ├── env                        # App config template (.env)
 │   └── env.droplet                # CLI-only deployment config template (.env.droplet)
-├── docker-compose.yml                # Container orchestration (5 services)
+├── docker-compose.yml                # Container orchestration (6 services)
 ├── docker-compose.shared.yml         # Shared-mode overlay (disables Caddy)
 ├── docker-compose.shared-network.yml # Marks SHARED_NETWORK as external (CLI pre-creates)
 ├── docker-compose.local.yml          # Local dev override (direct port access, no TLS)
