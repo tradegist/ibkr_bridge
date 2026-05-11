@@ -14,8 +14,17 @@ import pathlib
 import re
 import sys
 
-# Modules to (re)generate. Each entry is the directory under
-# ``types/typescript/`` that contains an auto-generated ``types.d.ts``.
+# Modules to (re)generate, in **precedence order**. Each entry is a
+# directory under ``types/typescript/`` that contains an auto-generated
+# ``types.d.ts``.
+#
+# Precedence semantics: when a name appears in multiple modules'
+# ``types.d.ts`` (which happens because ``json-schema-to-typescript``
+# inlines transitively-referenced types into every output file), the
+# barrel of the **earlier** module owns the public re-export. Later
+# modules' barrels skip the duplicate. The bridge currently has a
+# single module so this is a no-op, but the symmetry with relayport's
+# ``gen_ts_barrels.py`` is worth keeping for when modules are added.
 TS_MODULES = ["http"]
 
 TS_BASE = pathlib.Path("types/typescript")
@@ -57,17 +66,29 @@ def _render_barrel(names: list[str]) -> str:
 
 
 def main() -> None:
+    # Names already claimed by an earlier module's barrel — skipped in
+    # later modules to avoid duplicate public re-exports.
+    claimed: set[str] = set()
     for module in TS_MODULES:
         module_dir = TS_BASE / module
         types_dts = module_dir / "types.d.ts"
-        names = _collect_exports(types_dts)
-        if not names:
+        all_names = _collect_exports(types_dts)
+        if not all_names:
             raise SystemExit(
                 f"ERROR: no exported types found in {types_dts}",
             )
+        names = [n for n in all_names if n not in claimed]
+        skipped = sorted(set(all_names) - set(names))
         index_dts = module_dir / "index.d.ts"
         index_dts.write_text(_render_barrel(names))
-        print(f"Generated {index_dts} ({len(names)} exports)")
+        suffix = (
+            f" — skipped {len(skipped)} duplicate(s) owned by an earlier"
+            f" module: {', '.join(skipped)}"
+            if skipped
+            else ""
+        )
+        print(f"Generated {index_dts} ({len(names)} exports){suffix}")
+        claimed.update(names)
 
 
 if __name__ == "__main__":
