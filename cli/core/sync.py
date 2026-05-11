@@ -1,7 +1,20 @@
 import shutil
 import subprocess
 
-from cli.core import config, die, env, is_shared, load_env, scp_file, ssh_cmd, ssh_key_path
+from cli.core import (
+    config,
+    die,
+    ensure_shared_network,
+    env,
+    is_shared,
+    load_env,
+    scp_file,
+    shared_network,
+    shared_network_compose_env,
+    shared_network_compose_flag,
+    ssh_cmd,
+    ssh_key_path,
+)
 
 
 def _run_checks(skip_e2e):
@@ -86,23 +99,45 @@ def run(args):
     if args.local_files:
         _run_checks(args.skip_e2e)
         _sync_local_files(droplet_ip)
+    elif shared_network_compose_flag():
+        # `make sync` (without --local-files) doesn't rsync project files, so
+        # the shared-network overlay must be pushed explicitly. With
+        # --local-files the rsync above has already pushed the same file.
+        scp_file(
+            cfg.project_dir / "docker-compose.shared-network.yml",
+            f"{cfg.remote_dir}/docker-compose.shared-network.yml",
+            droplet_ip,
+        )
 
     build = "--build " if (args.build or args.local_files) else ""
 
-    # Shared mode uses the shared compose overlay
-    compose_files = ""
+    # Assemble compose overlays: shared-mode (disable Caddy) and/or shared-network
+    # (mark relay-net as external). Either may apply independently — e.g. a
+    # standalone host project still uses the shared-network overlay when it sets
+    # SHARED_NETWORK so it joins the same externally-managed network.
+    if is_shared() and not shared_network():
+        die("SHARED_NETWORK must be set (in .env or .env.droplet) when "
+            "DEPLOY_MODE=shared — it names the Docker network shared with "
+            "the host project.")
+    overlays = ""
     if is_shared():
-        compose_files = "-f docker-compose.yml -f docker-compose.shared.yml "
+        overlays += "-f docker-compose.shared.yml "
+    overlays += shared_network_compose_flag()
+    compose_files = f"-f docker-compose.yml {overlays}" if overlays else ""
 
     print("Pushing .env to droplet...")
     scp_file(cfg.project_dir / ".env", f"{cfg.remote_dir}/.env", droplet_ip)
 
+    ensure_shared_network(droplet_ip)
+
     compose_env = cfg.compose_env()
+    net_env = shared_network_compose_env()
 
     if not args.services:
         print(f"{'Rebuilding + restarting' if build else 'Restarting'} all services...")
         ssh_cmd(droplet_ip,
-                f"cd {cfg.remote_dir} && {compose_env}COMPOSE_PROFILES='{profiles}' "
+                f"cd {cfg.remote_dir} && {compose_env}{net_env}"
+                f"COMPOSE_PROFILES='{profiles}' "
                 f"docker compose {compose_files}up -d {build}--force-recreate")
     else:
         services = []
@@ -116,7 +151,8 @@ def run(args):
         svc_str = " ".join(services)
         print(f"{'Rebuilding + restarting' if build else 'Restarting'}: {svc_str}...")
         ssh_cmd(droplet_ip,
-                f"cd {cfg.remote_dir} && {compose_env}COMPOSE_PROFILES='{profiles}' "
+                f"cd {cfg.remote_dir} && {compose_env}{net_env}"
+                f"COMPOSE_PROFILES='{profiles}' "
                 f"docker compose {compose_files}up -d {build}--force-recreate {svc_str}")
 
     print("Done.")
