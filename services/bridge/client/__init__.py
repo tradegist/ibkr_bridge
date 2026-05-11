@@ -271,11 +271,28 @@ class IBClient:
     ) -> None:
         """Record an execId as broadcast, keyed to its fill timestamp.
 
-        ``fill_time`` falls back to ``datetime.now(UTC)`` when ib_async
-        gives us a tz-naive or missing value — the worst case is the
-        entry lingers up to ``DEDUPE_RETENTION`` longer than necessary.
+        The stored datetime is always tz-aware UTC so that
+        :meth:`_prune_stale_exec_ids` can compare it to a UTC cutoff
+        without raising ``TypeError`` ("can't compare offset-naive and
+        offset-aware datetimes").
+
+        Normalisation rules:
+        - ``None`` → ``datetime.now(UTC)``.
+        - Tz-naive datetime → reinterpreted as UTC (ib_async sometimes
+          surfaces ``Execution.time`` without tzinfo; treating it as
+          UTC is consistent with ib_async's intent and at worst causes
+          a ~hours skew on pruning that doesn't affect dedupe
+          correctness).
+        - Tz-aware datetime → stored unchanged (Python will normalise
+          when comparing to the UTC cutoff).
         """
-        self._broadcast_exec_ids[exec_id] = fill_time or datetime.now(UTC)
+        if fill_time is None:
+            normalised = datetime.now(UTC)
+        elif fill_time.tzinfo is None:
+            normalised = fill_time.replace(tzinfo=UTC)
+        else:
+            normalised = fill_time
+        self._broadcast_exec_ids[exec_id] = normalised
 
     def _prune_stale_exec_ids(self) -> None:
         """Drop dedupe entries older than ``DEDUPE_RETENTION``.

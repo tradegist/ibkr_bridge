@@ -5,7 +5,7 @@ PYTHON ?= .venv/bin/python3
 # Pin tool versions so `make types` is deterministic across machines/CI.
 # Bumping these is an explicit, reviewable change.
 JSON2TS_VERSION = 15.0.4
-TYPESCRIPT_VERSION = 5.6
+TYPESCRIPT_VERSION = 5.6.3
 JSON2TS = npx --yes -p json-schema-to-typescript@$(JSON2TS_VERSION) json2ts
 TSC = npx --yes -p typescript@$(TYPESCRIPT_VERSION) tsc
 E2E_ENV = .env.test

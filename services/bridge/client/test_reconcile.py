@@ -96,7 +96,11 @@ async def _await_reconcile(client: IBClient) -> None:
     task = client._reconcile_task
     if task is None:
         raise RuntimeError("expected a reconcile task to be scheduled")
-    await task
+    # ``return await task`` (vs. a bare ``await task``) explicitly
+    # consumes the awaited result so static analyzers don't flag it as
+    # a useless expression statement. ``task`` is ``Task[None]`` so the
+    # returned value matches this function's ``-> None`` signature.
+    return await task
 
 
 class TestInitialSyncGate(unittest.IsolatedAsyncioTestCase):
@@ -481,6 +485,45 @@ class TestExecIdDedup(unittest.IsolatedAsyncioTestCase):
         with patch("client.RECONCILE_SETTLE_SECONDS", 0):
             await client._reconcile_executions()
         self.assertNotIn("stale", client._broadcast_exec_ids)
+
+    def test_record_broadcast_normalizes_naive_datetime_to_utc(self) -> None:
+        """ib_async sometimes hands us a tz-naive datetime. Storing it
+        as-is would crash the prune later with
+        ``TypeError: can't compare offset-naive and offset-aware
+        datetimes``. Verify the stored value is tz-aware UTC.
+        """
+        client = _make_client()
+        naive = datetime(2026, 5, 10, 14, 30, 0)
+        self.assertIsNone(naive.tzinfo)
+        client._record_broadcast("X", naive)
+        stored = client._broadcast_exec_ids["X"]
+        self.assertEqual(stored.tzinfo, UTC)
+        # Same wall-clock, just labelled UTC.
+        self.assertEqual(stored.replace(tzinfo=None), naive)
+
+    def test_record_broadcast_preserves_aware_datetime(self) -> None:
+        """Tz-aware input flows through unchanged (no double-conversion)."""
+        client = _make_client()
+        aware = datetime(2026, 5, 10, 14, 30, 0, tzinfo=UTC)
+        client._record_broadcast("X", aware)
+        self.assertIs(client._broadcast_exec_ids["X"], aware)
+
+    def test_record_broadcast_none_falls_back_to_now(self) -> None:
+        client = _make_client()
+        before = datetime.now(UTC)
+        client._record_broadcast("X", None)
+        after = datetime.now(UTC)
+        stored = client._broadcast_exec_ids["X"]
+        self.assertEqual(stored.tzinfo, UTC)
+        self.assertTrue(before <= stored <= after)
+
+    async def test_prune_after_naive_broadcast_does_not_raise(self) -> None:
+        """End-to-end regression: a naive datetime stored via
+        ``_record_broadcast`` must NOT crash a subsequent prune."""
+        client = _make_client()
+        client._record_broadcast("X", datetime(2026, 5, 10, 14, 30))  # naive
+        # Must not raise TypeError on the naive-vs-aware comparison.
+        client._prune_stale_exec_ids()
 
 
 if __name__ == "__main__":
