@@ -145,13 +145,14 @@ Query parameters:
 
 - `last_seq` — replay buffered events with `seq >` this value (default: `0`)
 
-Events are JSON envelopes with a monotonic `seq` number. Fields mirror `ib_async` 2.1.0 exactly:
+Events are JSON envelopes wrapping bridge metadata (`type`, `seq`, `timestamp`, and on fill events `source`) around an inner `fill` payload whose nested `contract` / `execution` / `commissionReport` fields mirror `ib_async` 2.1.0 exactly:
 
 ```json
 {
   "type": "commissionReportEvent",
   "seq": 42,
   "timestamp": "2026-04-11T10:30:00+00:00",
+  "source": "live",
   "fill": {
     "contract": {
       "secType": "STK",
@@ -190,13 +191,22 @@ Events are JSON envelopes with a monotonic `seq` number. Fields mirror `ib_async
 
 Event types:
 
-- `execDetailsEvent` — fill executed (preliminary, may lack commission)
-- `commissionReportEvent` — fill with commission data (confirmed)
+- `execDetailsEvent` — fill executed (preliminary, may lack commission). Only emitted for live, same-user fills.
+- `commissionReportEvent` — fill with commission data (confirmed). Emitted for live same-user fills **and** for fills surfaced by the cross-user reconcile path (see below).
 - `connected` — bridge connected to IB Gateway
 - `disconnected` — bridge lost IB Gateway connection
 
+Each fill event carries a `source` field indicating provenance:
+
+- `"live"` — emitted by ib_async's push callbacks (real-time, same-user fills)
+- `"reconciled"` — emitted by the position-triggered `reqExecutions` path (typically cross-user fills, e.g. orders placed from the mobile app)
+
+Status events (`connected` / `disconnected`) carry only `type`, `seq`, and `timestamp` — no `fill` or `source` field. The `WsEnvelope` TypeScript type is a discriminated union over `type`, so consumers narrow with a single `if (env.type === "commissionReportEvent") { ... }` and TypeScript guarantees `env.fill` and `env.source` are present.
+
 Features:
 
+- **Cross-user fill detection** — when a position changes (including from orders placed by another IBKR user on the same account, e.g. from the mobile app), the bridge calls `reqExecutions` and broadcasts each new fill as `commissionReportEvent` with `source: "reconciled"`. This complements the live callbacks, which IB only fires for fills the bridge's own user placed.
+- **Server-side execId dedupe** — the bridge tracks every broadcast `execId` (keyed to its fill timestamp) and emits each fill at most once. Both the live and the reconcile broadcast paths check the dedupe map *before* emitting, so whichever path wins the race wins — the other drops silently. The map persists across reconnects (a transient connection blip never re-broadcasts today's fills) and is pruned at the start of every reconcile to drop entries older than 2 days — bounding memory to roughly `fills_per_day × 2` entries.
 - **Replay on reconnect** — pass `?last_seq=N` to receive buffered events since that sequence number
 - **Ring buffer** — last 500 events buffered server-side (configurable via `WS_BUFFER_SIZE`)
 - **Up to 10 simultaneous subscribers** (configurable via `WS_MAX_SUBSCRIBERS`)
@@ -357,27 +367,27 @@ Configuration is split into two files to separate container config from CLI-only
 
 ### `.env` — app config (pushed to server, injected into containers)
 
-| Variable                | Required | Default                 | Description                                                                                                                                                                                                                               |
-| ----------------------- | -------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TWS_USERID`            | Yes      | —                       | IBKR username                                                                                                                                                                                                                             |
-| `TWS_PASSWORD`          | Yes      | —                       | IBKR password                                                                                                                                                                                                                             |
-| `VNC_SERVER_PASSWORD`   | Yes      | —                       | Password for VNC access to the Gateway GUI                                                                                                                                                                                                |
-| `TRADING_MODE`          | No       | `paper`                 | `paper` or `live`                                                                                                                                                                                                                         |
-| `VNC_DOMAIN`            | Yes      | —                       | Domain for VNC access (e.g. `vnc.example.com`)                                                                                                                                                                                            |
-| `SITE_DOMAIN`           | Yes      | —                       | Domain for the REST API (e.g. `trade.example.com`)                                                                                                                                                                                        |
-| `API_TOKEN`             | Yes      | —                       | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                                                                                                                                                             |
-| `JAVA_HEAP_SIZE`        | No       | `768`                   | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                                                                                                                                                        |
-| `TIME_ZONE`             | No       | `America/New_York`      | Timezone (tz database format)                                                                                                                                                                                                             |
-| `AUTO_RESTART_TIME`     | No       | `11:30 PM`              | IBC scheduled daily restart time (`HH:MM AM|PM`, interpreted in `TIME_ZONE`). The default `11:30 PM` is 15 minutes before IBKR's nightly ~11:45 PM ET session reset — if `TIME_ZONE` is not `America/New_York`, set this accordingly. Writes an autorestart file so the next start skips 2FA.  |
-| `VNC_BASIC_AUTH_USER`   | No       | `admin`                 | Username for VNC domain basic auth                                                                                                                                                                                                        |
-| `VNC_BASIC_AUTH_HASH`   | No       | auto-computed           | Bcrypt hash for VNC basic auth. Auto-derived from `VNC_SERVER_PASSWORD` at deploy time via `htpasswd` (macOS built-in; `apt install apache2-utils` on Linux). On Windows, pre-compute with `htpasswd -nbB admin <password>` and set here. |
-| `WS_BUFFER_SIZE`        | No       | `500`                   | Ring buffer size for WebSocket event replay on client reconnect                                                                                                                                                                           |
-| `WS_MAX_SUBSCRIBERS`    | No       | `10`                    | Maximum simultaneous WebSocket subscribers                                                                                                                                                                                                |
-| `WS_HEARTBEAT_INTERVAL` | No       | `30`                    | WebSocket ping interval in seconds for zombie connection detection                                                                                                                                                                        |
-| `SHARED_NETWORK`        | No       | —                       | Docker network name for cross-project communication (e.g. `relay-net`)                                                                                                                                                                    |
-| `RESEND_API_KEY`        | No       | —                       | [Resend](https://resend.com) API key. Required to enable crash alerting.                                                                                                                                                                  |
-| `ALERT_REPORT_EMAIL_TO` | No       | —                       | Recipient address for crash alert emails. Required to enable crash alerting.                                                                                                                                                              |
-| `ALERT_EMAIL_FROM`      | No       | `onboarding@resend.dev` | Sender address for alert emails. Must be a domain verified in your Resend account. Defaults to Resend's shared address if unset.                                                                                                          |
+| Variable                | Required | Default                 | Description                                                                                                                                                                                                                                                                                   |
+| ----------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TWS_USERID`            | Yes      | —                       | IBKR username                                                                                                                                                                                                                                                                                 |
+| `TWS_PASSWORD`          | Yes      | —                       | IBKR password                                                                                                                                                                                                                                                                                 |
+| `VNC_SERVER_PASSWORD`   | Yes      | —                       | Password for VNC access to the Gateway GUI                                                                                                                                                                                                                                                    |
+| `TRADING_MODE`          | No       | `paper`                 | `paper` or `live`                                                                                                                                                                                                                                                                             |
+| `VNC_DOMAIN`            | Yes      | —                       | Domain for VNC access (e.g. `vnc.example.com`)                                                                                                                                                                                                                                                |
+| `SITE_DOMAIN`           | Yes      | —                       | Domain for the REST API (e.g. `trade.example.com`)                                                                                                                                                                                                                                            |
+| `API_TOKEN`             | Yes      | —                       | Bearer token for `/ibkr/*` endpoints (`openssl rand -hex 32`)                                                                                                                                                                                                                                 |
+| `JAVA_HEAP_SIZE`        | No       | `768`                   | IB Gateway Java heap in MB. Determines auto-selected droplet size.                                                                                                                                                                                                                            |
+| `TIME_ZONE`             | No       | `America/New_York`      | Timezone (tz database format)                                                                                                                                                                                                                                                                 |
+| `AUTO_RESTART_TIME`     | No       | `11:30 PM`              | IBC scheduled daily restart time (`HH:MM AM/PM`, interpreted in `TIME_ZONE`). The default `11:30 PM` is 15 minutes before IBKR's nightly ~11:45 PM ET session reset — if `TIME_ZONE` is not `America/New_York`, set this accordingly. Writes an autorestart file so the next start skips 2FA. |
+| `VNC_BASIC_AUTH_USER`   | No       | `admin`                 | Username for VNC domain basic auth                                                                                                                                                                                                                                                            |
+| `VNC_BASIC_AUTH_HASH`   | No       | auto-computed           | Bcrypt hash for VNC basic auth. Auto-derived from `VNC_SERVER_PASSWORD` at deploy time via `htpasswd` (macOS built-in; `apt install apache2-utils` on Linux). On Windows, pre-compute with `htpasswd -nbB admin <password>` and set here.                                                     |
+| `WS_BUFFER_SIZE`        | No       | `500`                   | Ring buffer size for WebSocket event replay on client reconnect                                                                                                                                                                                                                               |
+| `WS_MAX_SUBSCRIBERS`    | No       | `10`                    | Maximum simultaneous WebSocket subscribers                                                                                                                                                                                                                                                    |
+| `WS_HEARTBEAT_INTERVAL` | No       | `30`                    | WebSocket ping interval in seconds for zombie connection detection                                                                                                                                                                                                                            |
+| `SHARED_NETWORK`        | No       | —                       | Docker network name for cross-project communication (e.g. `relay-net`)                                                                                                                                                                                                                        |
+| `RESEND_API_KEY`        | No       | —                       | [Resend](https://resend.com) API key. Required to enable crash alerting.                                                                                                                                                                                                                      |
+| `ALERT_REPORT_EMAIL_TO` | No       | —                       | Recipient address for crash alert emails. Required to enable crash alerting.                                                                                                                                                                                                                  |
+| `ALERT_EMAIL_FROM`      | No       | `onboarding@resend.dev` | Sender address for alert emails. Must be a domain verified in your Resend account. Defaults to Resend's shared address if unset.                                                                                                                                                              |
 
 ### `.env.droplet` — developer machine only (never pushed to server)
 
@@ -571,13 +581,15 @@ API types are available as a TypeScript package under `types/typescript/`:
 
 ```
 types/typescript/
-  index.d.ts                 # Barrel: exports IbkrBridgeHttp namespace
+  index.d.ts                 # Top-level barrel (hand-maintained; namespace map)
   package.json               # @tradegist/ibkr-bridge-types
   http/
-    index.d.ts               # Re-exports all types
-    types.d.ts               # Generated from bridge_models.py SCHEMA_MODELS
-    types.schema.json         # Intermediate JSON Schema
+    index.d.ts               # Auto-generated barrel (re-exports every public type)
+    types.d.ts               # Auto-generated from bridge_models.py SCHEMA_MODELS
+    types.schema.json        # Intermediate JSON Schema
 ```
+
+Everything under `http/` is regenerated by `make types`. The discriminated union `WsEnvelope` is emitted automatically by the JSON Schema → TypeScript pipeline — no hand-edited union aliases.
 
 Usage:
 
@@ -624,16 +636,18 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │       ├── main.py                # Entrypoint (IB connection + HTTP server)
 │       ├── bridge_models.py       # Pydantic models (request/response types)
 │       ├── client/                # IB Gateway client
-│       │   ├── __init__.py        # IBClient (connection, reconnection, watchdog)
+│       │   ├── __init__.py        # IBClient (connection, reconnection, watchdog, fill reconcile)
+│       │   ├── event_hub.py       # EventHub (pub/sub broadcast + ring buffer for WS replay)
 │       │   ├── orders.py          # OrdersNamespace (place orders)
 │       │   └── trades.py          # TradesNamespace (list trades + fills)
 │       ├── bridge_routes/         # HTTP API
 │       │   ├── __init__.py        # Route orchestrator (create_routes)
-│       │   ├── constants.py       # Shared constants (AUTH_PREFIX, client_key)
+│       │   ├── constants.py       # Shared constants (AUTH_PREFIX, client_key, hub_key)
 │       │   ├── health.py          # GET /health handler
 │       │   ├── middlewares.py     # Auth middleware (Bearer token, HMAC-safe)
 │       │   ├── order_place.py     # POST /ibkr/order handler
-│       │   └── trades_list.py     # GET /ibkr/trades handler
+│       │   ├── trades_list.py     # GET /ibkr/trades handler
+│       │   └── ws_events.py       # GET /ibkr/ws/events WebSocket handler
 │       └── tests/e2e/             # E2E tests
 │           ├── conftest.py        # httpx fixtures (api + anon_api)
 │           └── test_smoke.py      # Health + auth smoke tests
@@ -642,13 +656,15 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │   │   ├── Caddyfile              # Reverse proxy config (SITE_DOMAIN + VNC_DOMAIN)
 │   │   ├── docker-entrypoint.sh   # Hashes VNC_SERVER_PASSWORD → VNC_BASIC_AUTH_HASH
 │   │   ├── sites/
-│   │   │   └── ibkr-bridge.caddy  # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /health)
+│   │   │   └── ibkr-bridge.caddy  # SITE_DOMAIN API routes (/ibkr/order, /ibkr/trades, /ibkr/ws/events, /health)
 │   │   └── domains/
 │   │       └── ibkr-vnc.caddy    # VNC_DOMAIN routes (noVNC + gateway-controller, basic auth)
 │   ├── gateway-controller/
 │   │   ├── Dockerfile             # Alpine + docker CLI for container control
+│   │   ├── entrypoint.sh          # Starts monitor-gateway in background, then execs httpd
 │   │   ├── start-gateway.sh       # CGI: start ib-gateway container
-│   │   └── gateway-status.sh      # CGI: check ib-gateway status
+│   │   ├── gateway-status.sh      # CGI: check ib-gateway status
+│   │   └── monitor-gateway.sh     # Background daemon: watch for unexpected exits, send Resend alert
 │   └── novnc/
 │       └── index.html             # Custom noVNC landing page
 ├── terraform/

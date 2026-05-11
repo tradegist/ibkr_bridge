@@ -5,7 +5,19 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type TypesSchema = PlaceOrderPayload | PlaceOrderResponse | HealthResponse | ListTradesResponse | WsEnvelope;
+export type TypesSchema =
+  | PlaceOrderPayload
+  | PlaceOrderResponse
+  | HealthResponse
+  | ListTradesResponse
+  | WsEnvelope
+  | Action
+  | ExecSide
+  | OrderType
+  | SecType
+  | TimeInForce
+  | WsEventSource
+  | WsEventType;
 export type SecType =
   | "BAG"
   | "BOND"
@@ -26,6 +38,8 @@ export type Action = "BUY" | "SELL";
 export type OrderType = "LMT" | "MKT";
 export type TimeInForce = "DAY" | "DTC" | "FOK" | "GTC" | "GTD" | "IOC" | "OPG";
 export type ExecSide = "BOT" | "SLD";
+export type WsEnvelope = WsStatusEnvelope | WsFillEnvelope;
+export type WsEventSource = "live" | "reconciled";
 export type WsEventType = "commissionReportEvent" | "connected" | "disconnected" | "execDetailsEvent";
 
 /**
@@ -107,13 +121,29 @@ export interface FillDetail {
   realizedPNL: number;
 }
 /**
- * Top-level WebSocket message wrapper.
+ * Connection status event — emitted on (re)connect / disconnect.
+ *
+ * Carries no fill payload because there is no execution to describe.
  */
-export interface WsEnvelope {
-  type: WsEventType;
+export interface WsStatusEnvelope {
+  type: "connected" | "disconnected";
   seq: number;
   timestamp: string;
-  fill?: WsFill | null;
+  [k: string]: unknown;
+}
+/**
+ * Execution fill event — every fill the bridge surfaces.
+ *
+ * ``fill`` and ``source`` are required: every emitted fill carries a
+ * full payload and a provenance label (``"live"`` or ``"reconciled"``).
+ */
+export interface WsFillEnvelope {
+  type: "execDetailsEvent" | "commissionReportEvent";
+  seq: number;
+  timestamp: string;
+  fill: WsFill;
+  source: WsEventSource;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.objects.Fill NamedTuple (ib_async 2.1.0).
@@ -123,6 +153,7 @@ export interface WsFill {
   execution: WsExecution;
   commissionReport: WsCommissionReport;
   time: string;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.contract.Contract (ib_async 2.1.0).
@@ -148,6 +179,7 @@ export interface WsContract {
   comboLegsDescrip: string;
   comboLegs?: WsComboLeg[];
   deltaNeutralContract?: WsDeltaNeutralContract | null;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0).
@@ -161,6 +193,7 @@ export interface WsComboLeg {
   shortSaleSlot: number;
   designatedLocation: string;
   exemptCode: number;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.contract.DeltaNeutralContract (ib_async 2.1.0).
@@ -169,6 +202,7 @@ export interface WsDeltaNeutralContract {
   conId: number;
   delta: number;
   price: number;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.objects.Execution (ib_async 2.1.0).
@@ -193,6 +227,7 @@ export interface WsExecution {
   modelCode: string;
   lastLiquidity: number;
   pendingPriceRevision: boolean;
+  [k: string]: unknown;
 }
 /**
  * Mirrors ib_async.objects.CommissionReport (ib_async 2.1.0).
@@ -204,4 +239,5 @@ export interface WsCommissionReport {
   realizedPNL: number;
   yield_: number;
   yieldRedemptionDate: number;
+  [k: string]: unknown;
 }

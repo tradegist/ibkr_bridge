@@ -48,10 +48,12 @@ async def amain() -> None:
     await site.start()
     log.info("HTTP API listening on port %d", api_port)
 
-    await client.connect()
-
+    # Subscribe before connecting so connectedEvent fires for the first
+    # connect (arms the initial-sync gate via _on_connected).
     client.ib.disconnectedEvent += client.on_disconnect
     client.subscribe_events()
+
+    await client.connect()
 
     await client.watchdog()
 

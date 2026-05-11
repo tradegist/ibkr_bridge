@@ -2,6 +2,12 @@
 
 PROJECT = ibkr-bridge
 PYTHON ?= .venv/bin/python3
+# Pin tool versions so `make types` is deterministic across machines/CI.
+# Bumping these is an explicit, reviewable change.
+JSON2TS_VERSION = 15.0.4
+TYPESCRIPT_VERSION = 5.6.3
+JSON2TS = npx --yes -p json-schema-to-typescript@$(JSON2TS_VERSION) json2ts
+TSC = npx --yes -p typescript@$(TYPESCRIPT_VERSION) tsc
 E2E_ENV = .env.test
 E2E_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test --env-file $(E2E_ENV)
 E2E_COMPOSE_DOWN = docker compose -f docker-compose.yml -f docker-compose.test.yml -p $(PROJECT)-test --env-file $(E2E_ENV)
@@ -46,8 +52,9 @@ order: ## Place a stock order (e.g. make order Q=2 SYM=TSLA T=MKT [P=] [CUR=EUR]
 
 types: ## Regenerate TypeScript + Python types from Pydantic models
 	PYTHONPATH=services/bridge $(PYTHON) schema_gen.py bridge_models > types/typescript/http/types.schema.json
-	npx --yes json-schema-to-typescript types/typescript/http/types.schema.json > types/typescript/http/types.d.ts
+	$(JSON2TS) types/typescript/http/types.schema.json > types/typescript/http/types.d.ts
 	@echo "Generated types/typescript/http/types.d.ts"
+	$(PYTHON) gen_ts_barrels.py
 	$(PYTHON) gen_python_types.py
 
 test: ## Run unit tests
@@ -56,10 +63,12 @@ test: ## Run unit tests
 typecheck: ## Run mypy strict type checking
 	MYPYPATH=services/bridge $(PYTHON) -m mypy services/bridge/
 	$(PYTHON) -m mypy services/shared/
+	$(PYTHON) -m mypy schema_gen.py gen_python_types.py gen_ts_barrels.py
 	$(PYTHON) -m mypy types/python/ibkr_bridge_types/
+	$(TSC) --noEmit -p types/typescript/
 
 lint: ## Run ruff linter (use FIX=1 to auto-fix)
-	$(PYTHON) -m ruff check services/bridge/ services/shared/ cli/ schema_gen.py gen_python_types.py types/python/ibkr_bridge_types/ $(if $(FIX),--fix)
+	$(PYTHON) -m ruff check services/bridge/ services/shared/ cli/ schema_gen.py gen_python_types.py gen_ts_barrels.py types/python/ibkr_bridge_types/ $(if $(FIX),--fix)
 	@if grep -rn '__all__' services/ types/ cli/ --include='*.py'; then echo "ERROR: __all__ is banned — use explicit re-exports"; exit 1; fi
 
 e2e-up: ## Start E2E test stack (ib-gateway + bridge, paper account)

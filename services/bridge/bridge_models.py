@@ -7,7 +7,7 @@
 !! uses it (e.g. client/, bridge_routes/).
 """
 
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -156,6 +156,16 @@ WsEventType = Literal[
     "disconnected",
 ]
 
+# Provenance of a fill event. Only present on ``WsFillEnvelope`` —
+# ``WsStatusEnvelope`` (connected / disconnected) has no ``source`` field
+# at all; consumers should not expect the key on status messages.
+# - ``live`` — emitted by ib_async's push callbacks (execDetailsEvent /
+#   commissionReportEvent). Only fires for fills the bridge's IBKR user
+#   is authorised to see in real time (typically same-user orders).
+# - ``reconciled`` — emitted by the positionEvent → reqExecutions path
+#   to surface fills from other users on the same account.
+WsEventSource = Literal["live", "reconciled"]
+
 
 class WsComboLeg(BaseModel):
     """Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0)."""
@@ -259,13 +269,58 @@ class WsFill(BaseModel):
     time: str
 
 
-class WsEnvelope(BaseModel):
-    """Top-level WebSocket message wrapper."""
+class WsStatusEnvelope(BaseModel):
+    """Connection status event — emitted on (re)connect / disconnect.
+
+    Carries no fill payload because there is no execution to describe.
+    """
 
     model_config = ConfigDict(extra="allow")
 
-    type: WsEventType
+    type: Literal["connected", "disconnected"]
     seq: int
     timestamp: str
-    fill: WsFill | None = None
+
+
+class WsFillEnvelope(BaseModel):
+    """Execution fill event — every fill the bridge surfaces.
+
+    ``fill`` and ``source`` are required: every emitted fill carries a
+    full payload and a provenance label (``"live"`` or ``"reconciled"``).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: Literal["execDetailsEvent", "commissionReportEvent"]
+    seq: int
+    timestamp: str
+    fill: WsFill
+    source: WsEventSource
+
+
+# Discriminated union over the ``type`` field. Pydantic uses the
+# discriminator to route validation to the correct concrete branch.
+#
+# NOTE: Static analyzers may flag this as "unused" because no code in
+# this service imports it directly — the bridge constructs the concrete
+# ``WsStatusEnvelope`` / ``WsFillEnvelope`` classes when broadcasting.
+# Do NOT remove. The symbol is load-bearing on three external paths
+# that static analysis cannot see:
+#
+# 1. **schema_gen.py** references it by string in
+#    ``SCHEMA_MODELS["bridge_models"]`` and resolves it with
+#    ``getattr(module, "WsEnvelope")`` at build time. Removing it
+#    breaks ``make types`` and the public TypeScript discriminated
+#    union ``export type WsEnvelope = WsStatusEnvelope | WsFillEnvelope``.
+# 2. **types/python/ibkr_bridge_types/__init__.py** (auto-generated)
+#    re-exports it as ``from .models import WsEnvelope as WsEnvelope``
+#    — the public Python API of the ``ibkr-bridge-types`` package.
+# 3. **External consumers** (e.g. relayport) validate raw dicts with
+#    ``TypeAdapter(WsEnvelope).validate_python(data)``. Note: because
+#    ``WsEnvelope`` is a ``TypeAlias`` (not a class), the legacy
+#    ``WsEnvelope.model_validate(...)`` call does NOT work.
+WsEnvelope: TypeAlias = Annotated[
+    WsStatusEnvelope | WsFillEnvelope,
+    Field(discriminator="type"),
+]
 

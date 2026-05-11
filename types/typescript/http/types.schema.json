@@ -302,7 +302,7 @@
       "type": "object"
     },
     "WsComboLeg": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.contract.ComboLeg (ib_async 2.1.0).",
       "properties": {
         "conId": {
@@ -344,7 +344,7 @@
       "type": "object"
     },
     "WsCommissionReport": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.objects.CommissionReport (ib_async 2.1.0).",
       "properties": {
         "execId": {
@@ -378,7 +378,7 @@
       "type": "object"
     },
     "WsContract": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.contract.Contract (ib_async 2.1.0).",
       "properties": {
         "secType": {
@@ -477,7 +477,7 @@
       "type": "object"
     },
     "WsDeltaNeutralContract": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.contract.DeltaNeutralContract (ib_async 2.1.0).",
       "properties": {
         "conId": {
@@ -499,7 +499,7 @@
       "type": "object"
     },
     "WsExecution": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.objects.Execution (ib_async 2.1.0).",
       "properties": {
         "execId": {
@@ -585,7 +585,7 @@
       "type": "object"
     },
     "WsFill": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "description": "Mirrors ib_async.objects.Fill NamedTuple (ib_async 2.1.0).",
       "properties": {
         "contract": {
@@ -610,12 +610,16 @@
       "title": "WsFill",
       "type": "object"
     },
-    "WsEnvelope": {
-      "additionalProperties": false,
-      "description": "Top-level WebSocket message wrapper.",
+    "WsFillEnvelope": {
+      "additionalProperties": true,
+      "description": "Execution fill event \u2014 every fill the bridge surfaces.\n\n``fill`` and ``source`` are required: every emitted fill carries a\nfull payload and a provenance label (``\"live\"`` or ``\"reconciled\"``).",
       "properties": {
         "type": {
-          "$ref": "#/$defs/WsEventType"
+          "enum": [
+            "execDetailsEvent",
+            "commissionReportEvent"
+          ],
+          "type": "string"
         },
         "seq": {
           "type": "integer"
@@ -624,15 +628,38 @@
           "type": "string"
         },
         "fill": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/WsFill"
-            },
-            {
-              "type": "null"
-            }
+          "$ref": "#/$defs/WsFill"
+        },
+        "source": {
+          "$ref": "#/$defs/WsEventSource"
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "timestamp",
+        "fill",
+        "source"
+      ],
+      "title": "WsFillEnvelope",
+      "type": "object"
+    },
+    "WsStatusEnvelope": {
+      "additionalProperties": true,
+      "description": "Connection status event \u2014 emitted on (re)connect / disconnect.\n\nCarries no fill payload because there is no execution to describe.",
+      "properties": {
+        "type": {
+          "enum": [
+            "connected",
+            "disconnected"
           ],
-          "default": null
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "timestamp": {
+          "type": "string"
         }
       },
       "required": [
@@ -640,8 +667,27 @@
         "seq",
         "timestamp"
       ],
-      "title": "WsEnvelope",
+      "title": "WsStatusEnvelope",
       "type": "object"
+    },
+    "WsEnvelope": {
+      "discriminator": {
+        "mapping": {
+          "commissionReportEvent": "#/$defs/WsFillEnvelope",
+          "connected": "#/$defs/WsStatusEnvelope",
+          "disconnected": "#/$defs/WsStatusEnvelope",
+          "execDetailsEvent": "#/$defs/WsFillEnvelope"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/WsStatusEnvelope"
+        },
+        {
+          "$ref": "#/$defs/WsFillEnvelope"
+        }
+      ]
     },
     "Action": {
       "enum": [
@@ -696,19 +742,19 @@
       ],
       "type": "string"
     },
-    "WsStatusType": {
-      "enum": [
-        "connected",
-        "disconnected"
-      ],
-      "type": "string"
-    },
     "WsEventType": {
       "enum": [
         "commissionReportEvent",
         "connected",
         "disconnected",
         "execDetailsEvent"
+      ],
+      "type": "string"
+    },
+    "WsEventSource": {
+      "enum": [
+        "live",
+        "reconciled"
       ],
       "type": "string"
     }
@@ -728,6 +774,27 @@
     },
     {
       "$ref": "#/$defs/WsEnvelope"
+    },
+    {
+      "$ref": "#/$defs/Action"
+    },
+    {
+      "$ref": "#/$defs/ExecSide"
+    },
+    {
+      "$ref": "#/$defs/OrderType"
+    },
+    {
+      "$ref": "#/$defs/SecType"
+    },
+    {
+      "$ref": "#/$defs/TimeInForce"
+    },
+    {
+      "$ref": "#/$defs/WsEventSource"
+    },
+    {
+      "$ref": "#/$defs/WsEventType"
     }
   ]
 }
