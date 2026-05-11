@@ -206,7 +206,7 @@ Status events (`connected` / `disconnected`) carry only `type`, `seq`, and `time
 Features:
 
 - **Cross-user fill detection** — when a position changes (including from orders placed by another IBKR user on the same account, e.g. from the mobile app), the bridge calls `reqExecutions` and broadcasts each new fill as `commissionReportEvent` with `source: "reconciled"`. This complements the live callbacks, which IB only fires for fills the bridge's own user placed.
-- **Server-side execId dedupe** — the bridge tracks every broadcast `execId` (keyed to its fill timestamp) and emits each fill at most once. Live `commissionReportEvent` broadcasts populate the dedupe map, so the reconcile path skips fills already emitted live. The map persists across reconnects (so a transient connection blip never re-broadcasts today's fills) and is pruned at the start of every reconcile to drop entries older than 2 days — bounding memory to roughly `fills_per_day × 2` entries.
+- **Server-side execId dedupe** — the bridge tracks every broadcast `execId` (keyed to its fill timestamp) and emits each fill at most once. Both the live and the reconcile broadcast paths check the dedupe map *before* emitting, so whichever path wins the race wins — the other drops silently. The map persists across reconnects (a transient connection blip never re-broadcasts today's fills) and is pruned at the start of every reconcile to drop entries older than 2 days — bounding memory to roughly `fills_per_day × 2` entries.
 - **Replay on reconnect** — pass `?last_seq=N` to receive buffered events since that sequence number
 - **Ring buffer** — last 500 events buffered server-side (configurable via `WS_BUFFER_SIZE`)
 - **Up to 10 simultaneous subscribers** (configurable via `WS_MAX_SUBSCRIBERS`)
