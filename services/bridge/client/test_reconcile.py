@@ -2,6 +2,7 @@
 
 import asyncio
 import unittest
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -384,6 +385,26 @@ class TestExecIdDedup(unittest.IsolatedAsyncioTestCase):
         # No new event broadcast; only the live one.
         self.assertEqual(len(client.hub.replay(0)), live_count)
 
+    def test_live_commission_report_suppressed_when_reconcile_won_race(
+        self,
+    ) -> None:
+        """Symmetric to the reconcile-side gate: if a reconcile already
+        broadcast this execId (e.g. the live commissionReport arrives
+        after a slow IB round-trip), the live callback must NOT re-emit
+        the same fill — otherwise the public 'emit each fill at most
+        once' guarantee breaks.
+        """
+        client = _make_client()
+        fill = _mock_fill(exec_id="RACE")
+        # Simulate the reconcile path having already recorded this execId.
+        client._broadcast_exec_ids["RACE"] = datetime.now(UTC)
+        prior_count = len(client.hub.replay(0))
+        client._on_commission_report(
+            MagicMock(), fill, self._commission_report_mock("RACE"),
+        )
+        # No new broadcast — the live event was suppressed.
+        self.assertEqual(len(client.hub.replay(0)), prior_count)
+
     async def test_reconcile_broadcasts_then_skips_on_repeat(self) -> None:
         """First reconcile broadcasts; second sees execId in set, skips."""
         fill = _mock_fill(exec_id="RECON-1")
@@ -420,16 +441,46 @@ class TestExecIdDedup(unittest.IsolatedAsyncioTestCase):
     async def test_on_connected_preserves_exec_id_set(self) -> None:
         """Reconnect must not drop already-broadcast execIds — otherwise
         a transient same-day reconnect would re-emit every fill of the
-        day as ``source="reconciled"``. The set persists for the
-        lifetime of the bridge process.
+        day as ``source="reconciled"``. The map persists across
+        (re)connects and is only trimmed by ``_prune_stale_exec_ids``.
         """
         client = _make_client()
-        client._broadcast_exec_ids.update({"A", "B", "C"})
+        now = datetime.now(UTC)
+        client._broadcast_exec_ids.update({"A": now, "B": now, "C": now})
         # Patch call_later to a no-op so we don't schedule a real timer
         # against the test loop.
         with patch.object(asyncio.get_running_loop(), "call_later"):
             client._on_connected()
-        self.assertEqual(client._broadcast_exec_ids, {"A", "B", "C"})
+        self.assertEqual(set(client._broadcast_exec_ids), {"A", "B", "C"})
+
+    async def test_prune_drops_entries_older_than_retention(self) -> None:
+        """``_prune_stale_exec_ids`` evicts entries older than
+        ``DEDUPE_RETENTION`` and keeps newer ones — bounds memory."""
+        from client import DEDUPE_RETENTION
+        client = _make_client()
+        now = datetime.now(UTC)
+        client._broadcast_exec_ids.update({
+            "fresh": now,
+            "edge": now - DEDUPE_RETENTION + timedelta(seconds=30),
+            "stale": now - DEDUPE_RETENTION - timedelta(seconds=30),
+            "ancient": now - timedelta(days=30),
+        })
+        client._prune_stale_exec_ids()
+        self.assertEqual(
+            set(client._broadcast_exec_ids), {"fresh", "edge"},
+        )
+
+    async def test_reconcile_prunes_before_processing(self) -> None:
+        """The reconcile path calls ``_prune_stale_exec_ids`` before
+        looking at the new batch — regression guard so the dedupe map
+        never grows unbounded across days."""
+        from client import DEDUPE_RETENTION
+        client = _make_client(req_executions_return=[])
+        stale_time = datetime.now(UTC) - DEDUPE_RETENTION - timedelta(hours=1)
+        client._broadcast_exec_ids["stale"] = stale_time
+        with patch("client.RECONCILE_SETTLE_SECONDS", 0):
+            await client._reconcile_executions()
+        self.assertNotIn("stale", client._broadcast_exec_ids)
 
 
 if __name__ == "__main__":

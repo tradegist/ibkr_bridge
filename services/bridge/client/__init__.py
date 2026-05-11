@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from ib_async import IB
@@ -42,6 +42,14 @@ INITIAL_SYNC_GRACE_SECONDS = 1.0
 # Delay before reqExecutions in a reconcile, so the matching commissionReport
 # message has time to land on the same Fill before we read it.
 RECONCILE_SETTLE_SECONDS = 1.0
+
+# How long a broadcast execId stays in the dedupe map. Set to 2 days so
+# the window spans any session boundary or weekend/holiday gap regardless
+# of the gateway's local timezone — IB execIds embedded in today's
+# ``reqExecutions`` results are at most ~24h old, so 2 days is generous.
+# Bounds memory by (fills_per_day x 2) — a few hundred KB for active
+# accounts.
+DEDUPE_RETENTION = timedelta(days=2)
 
 
 def get_ib_host() -> str:
@@ -91,15 +99,21 @@ class IBClient:
         # through the gate prematurely.
         self._sync_timer: asyncio.TimerHandle | None = None
         self._reconcile_task: asyncio.Task[None] | None = None
-        # execIds we've already broadcast as commissionReportEvent —
-        # used to suppress reconcile-path re-broadcasts. Persists for
-        # the lifetime of the bridge process (NOT cleared on reconnect):
-        # transient same-day reconnects must not re-emit fills the
-        # process has already broadcast. IB execIds are globally unique
-        # (the prefix encodes day + account + client), so stale entries
-        # from earlier sessions cannot collide with new fills — they're
-        # harmless ballast bounded by process lifetime.
-        self._broadcast_exec_ids: set[str] = set()
+        # execIds we've already broadcast as commissionReportEvent,
+        # keyed to their fill timestamp so a periodic prune can drop
+        # entries older than ``DEDUPE_RETENTION``. Used to suppress
+        # reconcile-path re-broadcasts.
+        #
+        # NOT cleared on reconnect — transient same-day reconnects
+        # must not re-emit fills the process has already broadcast.
+        # IB execIds are globally unique (the prefix encodes day +
+        # account + client), so stale entries from earlier sessions
+        # cannot collide with new fills.
+        #
+        # Memory ceiling: bounded by (fills_per_day x 2) entries via
+        # ``_prune_stale_exec_ids`` called at the start of every
+        # reconcile.
+        self._broadcast_exec_ids: dict[str, datetime] = {}
         self.orders = OrdersNamespace(self.ib)
         self.trades = TradesNamespace(self.ib)
 
@@ -234,10 +248,51 @@ class IBClient:
     def _on_commission_report(
         self, trade: IBTrade, fill: Fill, report: CommissionReport
     ) -> None:
+        exec_id = fill.execution.execId
+        # Race guard: if the reconcile path already broadcast this fill
+        # (live commissionReport arriving > RECONCILE_SETTLE_SECONDS
+        # after the positionEvent that triggered the reconcile), drop
+        # the duplicate. Honours the public "emit each fill at most
+        # once" contract.
+        if exec_id in self._broadcast_exec_ids:
+            log.debug(
+                "Suppressed live commissionReportEvent for execId=%s "
+                "— already broadcast (likely by the reconcile path).",
+                exec_id,
+            )
+            return
         self._broadcast_fill(
             "commissionReportEvent", fill, report=report, source="live",
         )
-        self._broadcast_exec_ids.add(fill.execution.execId)
+        self._record_broadcast(exec_id, fill.execution.time)
+
+    def _record_broadcast(
+        self, exec_id: str, fill_time: datetime | None,
+    ) -> None:
+        """Record an execId as broadcast, keyed to its fill timestamp.
+
+        ``fill_time`` falls back to ``datetime.now(UTC)`` when ib_async
+        gives us a tz-naive or missing value — the worst case is the
+        entry lingers up to ``DEDUPE_RETENTION`` longer than necessary.
+        """
+        self._broadcast_exec_ids[exec_id] = fill_time or datetime.now(UTC)
+
+    def _prune_stale_exec_ids(self) -> None:
+        """Drop dedupe entries older than ``DEDUPE_RETENTION``.
+
+        Called at the start of every reconcile so memory stays bounded
+        by roughly ``fills_per_day x DEDUPE_RETENTION_DAYS`` entries
+        rather than growing for the entire process lifetime.
+        """
+        cutoff = datetime.now(UTC) - DEDUPE_RETENTION
+        stale = [eid for eid, t in self._broadcast_exec_ids.items() if t < cutoff]
+        for eid in stale:
+            del self._broadcast_exec_ids[eid]
+        if stale:
+            log.info(
+                "Pruned %d stale execId(s) older than %s from dedupe map",
+                len(stale), DEDUPE_RETENTION,
+            )
 
     def _on_position(self, position: Position) -> None:
         """Schedule a reqExecutions reconcile when an account position changes.
@@ -276,6 +331,11 @@ class IBClient:
         emitted live is skipped here. The RECONCILE_SETTLE_SECONDS
         delay gives the live commissionReport time to land first.
         """
+        # Prune before fetching: keeps the dedupe map bounded even if
+        # the trading day has rolled over and IB now returns a fresh
+        # batch of execIds we haven't seen yet.
+        self._prune_stale_exec_ids()
+
         try:
             await asyncio.sleep(RECONCILE_SETTLE_SECONDS)
             fills = await self.ib.reqExecutionsAsync()
@@ -290,10 +350,10 @@ class IBClient:
             if exec_id in self._broadcast_exec_ids:
                 continue
             # Per-fill try/except so a single malformed payload does not
-            # abort the rest of the batch. Crucially, add to the dedupe
-            # set ONLY on success — otherwise a failed fill would be
-            # permanently suppressed and a later reconcile could never
-            # retry it.
+            # abort the rest of the batch. Crucially, record in the
+            # dedupe map ONLY on success — otherwise a failed fill
+            # would be permanently suppressed and a later reconcile
+            # could never retry it.
             try:
                 self._broadcast_fill(
                     "commissionReportEvent", fill, source="reconciled",
@@ -305,7 +365,7 @@ class IBClient:
                 )
                 failed_count += 1
                 continue
-            self._broadcast_exec_ids.add(exec_id)
+            self._record_broadcast(exec_id, fill.execution.time)
             new_count += 1
         log.info(
             "reconcile: %d new fill(s) broadcast (%d already seen, %d failed)",
