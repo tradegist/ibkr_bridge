@@ -191,12 +191,37 @@ def _resolve_or_die(mod: types.ModuleType, name: str) -> Any:
         ) from exc
 
 
-def _is_schema_compatible(value: Any) -> bool:
-    """Pydantic BaseModel subclass *or* a non-class type alias (Annotated/Union)."""
+def _validate_schema_compatible(name: str, value: Any, mod_name: str) -> None:
+    """Ensure *value* is something ``generate_schema`` can actually use.
+
+    Accepts:
+    - Pydantic ``BaseModel`` subclasses (fast-path).
+    - Typing constructs that represent a real type: ``Annotated[...]``,
+      ``Union[...]``, ``Literal[...]``, generic aliases, etc. These all
+      return non-``None`` from :func:`typing.get_origin`.
+
+    Rejects everything else (functions, lambdas, plain strings, ints,
+    module globals, non-Pydantic classes) with a targeted ``SystemExit``.
+    ``TypeAdapter`` alone is too permissive (it silently accepts a bare
+    lambda or a string as a forward-ref) so we gate on ``get_origin``
+    first and only then probe Pydantic for a final sanity check.
+    """
     if inspect.isclass(value) and issubclass(value, BaseModel):
-        return True
-    # Non-class values: TypeAlias, Annotated[...], Union types, etc.
-    return not inspect.isclass(value)
+        return
+    if get_origin(value) is None:
+        raise SystemExit(
+            f"ERROR: {name!r} in {mod_name!r} is not schema-compatible "
+            f"(must be a Pydantic BaseModel subclass or a typing construct "
+            f"such as Annotated, Union, or Literal — got "
+            f"{type(value).__name__} {value!r})."
+        )
+    try:
+        TypeAdapter(value)
+    except Exception as exc:
+        raise SystemExit(
+            f"ERROR: {name!r} in {mod_name!r} is a typing construct but "
+            f"Pydantic's TypeAdapter cannot build a schema for it: {exc}"
+        ) from exc
 
 
 if __name__ == "__main__":
@@ -213,10 +238,6 @@ if __name__ == "__main__":
 
     for n in model_names:
         value = _resolve_or_die(mod, n)
-        if not _is_schema_compatible(value):
-            raise SystemExit(
-                f"ERROR: {n!r} in {mod_name!r} is not schema-compatible "
-                f"(must be a BaseModel subclass or a TypeAlias union)."
-            )
+        _validate_schema_compatible(n, value, mod_name)
 
     generate_schema(mod, model_names)

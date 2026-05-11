@@ -121,6 +121,43 @@ class TestInitialSyncGate(unittest.IsolatedAsyncioTestCase):
         delay, fn = call_later.call_args.args
         self.assertEqual(fn, client._mark_synced)
         self.assertGreater(delay, 0)
+        # The TimerHandle must be retained so a subsequent reconnect can
+        # cancel it (regression guard — see test_rapid_reconnect_*).
+        self.assertIs(client._sync_timer, call_later.return_value)
+
+    async def test_rapid_reconnect_cancels_pending_sync_timer(self) -> None:
+        """Disconnect/reconnect within the grace window must cancel the
+        previous ``_mark_synced`` timer — otherwise the stale handle
+        fires during the new connection's position flood and opens the
+        gate too early.
+        """
+        client = _make_client()
+        with patch.object(asyncio.get_running_loop(), "call_later") as call_later:
+            # First connect: schedules timer #1.
+            call_later.return_value = MagicMock(name="timer-1")
+            client._on_connected()
+            timer_1 = client._sync_timer
+            assert timer_1 is not None
+
+            # Rapid reconnect: must cancel timer-1 and schedule timer-2.
+            call_later.return_value = MagicMock(name="timer-2")
+            client._on_connected()
+            timer_2 = client._sync_timer
+
+        cast(MagicMock, timer_1).cancel.assert_called_once()
+        self.assertIsNot(timer_2, timer_1)
+        self.assertEqual(call_later.call_count, 2)
+
+    async def test_mark_synced_clears_sync_timer_handle(self) -> None:
+        """After the grace fires legitimately, the handle slot is
+        cleared so ``_sync_timer is not None`` reliably means 'pending'."""
+        client = _make_client()
+        with patch.object(asyncio.get_running_loop(), "call_later"):
+            client._on_connected()
+        self.assertIsNotNone(client._sync_timer)
+        client._mark_synced()
+        self.assertIsNone(client._sync_timer)
+        self.assertTrue(client._initial_sync_complete)
 
 
 class TestReconcileScheduling(unittest.IsolatedAsyncioTestCase):
@@ -205,6 +242,67 @@ class TestReconcileBroadcast(unittest.IsolatedAsyncioTestCase):
             # Should not raise
             await client._reconcile_executions()
         self.assertEqual(len(client.hub.replay(0)), 0)
+
+    async def test_broadcast_failure_does_not_poison_dedupe_set(self) -> None:
+        """Per-fill ``_broadcast_fill`` failure must NOT add the execId
+        to ``_broadcast_exec_ids`` — otherwise the bad fill is silently
+        suppressed forever. The good sibling fill in the same batch
+        must still go through.
+        """
+        good = _mock_fill(exec_id="GOOD")
+        bad = _mock_fill(exec_id="BAD")
+        client = _make_client(req_executions_return=[good, bad])
+
+        original_broadcast = client._broadcast_fill
+
+        def selective(
+            event_type: Any, fill: Any, *, report: Any = None, source: Any,
+        ) -> None:
+            if fill.execution.execId == "BAD":
+                raise RuntimeError("simulated downstream error")
+            original_broadcast(event_type, fill, report=report, source=source)
+
+        with patch.object(client, "_broadcast_fill", side_effect=selective), \
+             patch("client.RECONCILE_SETTLE_SECONDS", 0):
+            await client._reconcile_executions()
+
+        self.assertIn("GOOD", client._broadcast_exec_ids)
+        self.assertNotIn("BAD", client._broadcast_exec_ids)
+        # Good fill broadcast survives the batch despite the bad sibling.
+        events = client.hub.replay(0)
+        broadcast_exec_ids = {
+            cast(dict[str, Any], cast(dict[str, Any], e["fill"])["execution"])["execId"]
+            for e in events
+        }
+        self.assertEqual(broadcast_exec_ids, {"GOOD"})
+
+    async def test_broadcast_failure_retries_on_next_reconcile(self) -> None:
+        """A transient failure must be retried by the next reconcile —
+        regression guard for the "permanent suppression" bug.
+        """
+        flaky = _mock_fill(exec_id="FLAKY")
+        client = _make_client(req_executions_return=[flaky])
+
+        attempt_failed = [False]
+        original_broadcast = client._broadcast_fill
+
+        def fail_first_call(
+            event_type: Any, fill: Any, *, report: Any = None, source: Any,
+        ) -> None:
+            if not attempt_failed[0]:
+                attempt_failed[0] = True
+                raise RuntimeError("transient")
+            original_broadcast(event_type, fill, report=report, source=source)
+
+        with patch.object(client, "_broadcast_fill", side_effect=fail_first_call), \
+             patch("client.RECONCILE_SETTLE_SECONDS", 0):
+            await client._reconcile_executions()
+            self.assertNotIn("FLAKY", client._broadcast_exec_ids)
+            self.assertEqual(len(client.hub.replay(0)), 0)
+            # Second reconcile retries the fill — succeeds this time.
+            await client._reconcile_executions()
+        self.assertIn("FLAKY", client._broadcast_exec_ids)
+        self.assertEqual(len(client.hub.replay(0)), 1)
 
 
 class TestBroadcastFillSignature(unittest.TestCase):

@@ -299,11 +299,26 @@ class WsFillEnvelope(BaseModel):
 
 
 # Discriminated union over the ``type`` field. Pydantic uses the
-# discriminator to route ``model_validate`` to the correct concrete
-# class. Consumers should validate via
-# ``TypeAdapter(WsEnvelope).validate_python(data)`` rather than calling
-# ``WsEnvelope.model_validate(...)`` — ``WsEnvelope`` is a type alias,
-# not a class.
+# discriminator to route validation to the correct concrete branch.
+#
+# NOTE: Static analyzers may flag this as "unused" because no code in
+# this service imports it directly — the bridge constructs the concrete
+# ``WsStatusEnvelope`` / ``WsFillEnvelope`` classes when broadcasting.
+# Do NOT remove. The symbol is load-bearing on three external paths
+# that static analysis cannot see:
+#
+# 1. **schema_gen.py** references it by string in
+#    ``SCHEMA_MODELS["bridge_models"]`` and resolves it with
+#    ``getattr(module, "WsEnvelope")`` at build time. Removing it
+#    breaks ``make types`` and the public TypeScript discriminated
+#    union ``export type WsEnvelope = WsStatusEnvelope | WsFillEnvelope``.
+# 2. **types/python/ibkr_bridge_types/__init__.py** (auto-generated)
+#    re-exports it as ``from .models import WsEnvelope as WsEnvelope``
+#    — the public Python API of the ``ibkr-bridge-types`` package.
+# 3. **External consumers** (e.g. relayport) validate raw dicts with
+#    ``TypeAdapter(WsEnvelope).validate_python(data)``. Note: because
+#    ``WsEnvelope`` is a ``TypeAlias`` (not a class), the legacy
+#    ``WsEnvelope.model_validate(...)`` call does NOT work.
 WsEnvelope: TypeAlias = Annotated[
     WsStatusEnvelope | WsFillEnvelope,
     Field(discriminator="type"),

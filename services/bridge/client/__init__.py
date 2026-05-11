@@ -83,6 +83,13 @@ class IBClient:
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._events_subscribed = False
         self._initial_sync_complete = False
+        # Handle for the pending ``_mark_synced`` timer. Tracked so a
+        # second (re)connect that happens before the first timer fires
+        # can cancel the stale handle — otherwise the old timer would
+        # flip ``_initial_sync_complete = True`` during the new
+        # connection's position-event flood and let reconciles slip
+        # through the gate prematurely.
+        self._sync_timer: asyncio.TimerHandle | None = None
         self._reconcile_task: asyncio.Task[None] | None = None
         # execIds we've already broadcast as commissionReportEvent —
         # used to suppress reconcile-path re-broadcasts. Persists for
@@ -186,6 +193,11 @@ class IBClient:
         after connect; without the gate, every one would schedule a
         reqExecutions call.
 
+        If a previous ``_mark_synced`` timer is still pending (a rapid
+        disconnect/reconnect inside the grace window), cancel it
+        first — otherwise the stale timer would fire during this new
+        connection's position flood and open the gate too early.
+
         The exec-id dedupe set is deliberately *not* cleared here — a
         transient same-day reconnect must not cause already-broadcast
         fills to be re-emitted as ``source="reconciled"``. The set is
@@ -193,13 +205,20 @@ class IBClient:
         which point ``reqExecutions`` will return today's fills and
         the new process will broadcast them once.
         """
+        if self._sync_timer is not None:
+            self._sync_timer.cancel()
         self._initial_sync_complete = False
         # ib_async dispatches connectedEvent on the running loop, so
         # get_running_loop() is the correct (non-deprecated) call.
         loop = asyncio.get_running_loop()
-        loop.call_later(INITIAL_SYNC_GRACE_SECONDS, self._mark_synced)
+        self._sync_timer = loop.call_later(
+            INITIAL_SYNC_GRACE_SECONDS, self._mark_synced,
+        )
 
     def _mark_synced(self) -> None:
+        # Clear the handle so ``_sync_timer is not None`` reliably means
+        # "a grace timer is currently pending".
+        self._sync_timer = None
         self._initial_sync_complete = True
         log.info("Initial position sync window closed — reconciliation armed")
 
@@ -260,22 +279,38 @@ class IBClient:
         try:
             await asyncio.sleep(RECONCILE_SETTLE_SECONDS)
             fills = await self.ib.reqExecutionsAsync()
-            new_count = 0
-            for fill in fills:
-                exec_id = fill.execution.execId
-                if exec_id in self._broadcast_exec_ids:
-                    continue
-                self._broadcast_exec_ids.add(exec_id)
+        except Exception as exc:
+            log.exception("reconcile failed: %s", exc)
+            return
+
+        new_count = 0
+        failed_count = 0
+        for fill in fills:
+            exec_id = fill.execution.execId
+            if exec_id in self._broadcast_exec_ids:
+                continue
+            # Per-fill try/except so a single malformed payload does not
+            # abort the rest of the batch. Crucially, add to the dedupe
+            # set ONLY on success — otherwise a failed fill would be
+            # permanently suppressed and a later reconcile could never
+            # retry it.
+            try:
                 self._broadcast_fill(
                     "commissionReportEvent", fill, source="reconciled",
                 )
-                new_count += 1
-            log.info(
-                "reconcile: %d new fill(s) broadcast (%d already seen)",
-                new_count, len(fills) - new_count,
-            )
-        except Exception as exc:
-            log.exception("reconcile failed: %s", exc)
+            except Exception:
+                log.exception(
+                    "reconcile: failed to broadcast fill execId=%s — will "
+                    "retry on the next reconcile", exec_id,
+                )
+                failed_count += 1
+                continue
+            self._broadcast_exec_ids.add(exec_id)
+            new_count += 1
+        log.info(
+            "reconcile: %d new fill(s) broadcast (%d already seen, %d failed)",
+            new_count, len(fills) - new_count - failed_count, failed_count,
+        )
 
     def _broadcast_fill(
         self,
