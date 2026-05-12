@@ -1,7 +1,9 @@
+import os
 import shutil
 import subprocess
 
 from cli.core import (
+    CoreConfig,
     config,
     die,
     ensure_shared_network,
@@ -15,6 +17,19 @@ from cli.core import (
     ssh_cmd,
     ssh_key_path,
 )
+
+
+def _test_subprocess_env(cfg: CoreConfig) -> dict[str, str]:
+    """Build the env for pre-deploy test subprocesses.
+
+    ``load_env()`` populates ``os.environ`` from ``.env`` so the CLI can do
+    its own work, but those values include real production credentials
+    (Resend keys, webhook URLs, etc.). Test subprocesses inherit ``os.environ``
+    by default, so a test bug that reaches the real code path can emit real
+    external IO. Strip the names listed in ``cfg.test_env_strip`` to make that
+    impossible regardless of test author mistakes.
+    """
+    return {k: v for k, v in os.environ.items() if k not in cfg.test_env_strip}
 
 
 def _run_checks(skip_e2e):
@@ -37,20 +52,22 @@ def _run_checks(skip_e2e):
     if dirty:
         die("Cannot sync: uncommitted changes — commit or stash first")
 
+    test_env = _test_subprocess_env(cfg)
+
     print("Running type checks...")
-    subprocess.run(["make", "typecheck"], check=True, cwd=cfg.project_dir)
+    subprocess.run(["make", "typecheck"], check=True, cwd=cfg.project_dir, env=test_env)
 
     print("Running linter...")
-    subprocess.run(["make", "lint"], check=True, cwd=cfg.project_dir)
+    subprocess.run(["make", "lint"], check=True, cwd=cfg.project_dir, env=test_env)
 
     print("Running unit tests...")
-    subprocess.run(["make", "test"], check=True, cwd=cfg.project_dir)
+    subprocess.run(["make", "test"], check=True, cwd=cfg.project_dir, env=test_env)
 
     if skip_e2e:
         print("Skipping E2E tests (--skip-e2e)")
     else:
         print("Running E2E tests...")
-        subprocess.run(["make", "e2e"], check=True, cwd=cfg.project_dir)
+        subprocess.run(["make", "e2e"], check=True, cwd=cfg.project_dir, env=test_env)
 
 
 def _sync_local_files(droplet_ip, *, strict_host_check=True):
