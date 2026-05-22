@@ -46,17 +46,22 @@ services/
       event_hub.py                 # EventHub (pub/sub + ring buffer for WS replay)
       orders.py                    # OrdersNamespace (place orders)
       trades.py                    # TradesNamespace (list trades + fills)
-    bridge_routes/                 # HTTP + WS API
+    bridge_routes/                 # HTTP + WS API + colocated unit tests
       __init__.py                  # Route orchestrator (create_routes)
       constants.py                 # AUTH_PREFIX, client_key, hub_key (aiohttp AppKeys)
       health.py                    # GET /health
       middlewares.py               # Auth middleware (Bearer, HMAC-safe)
+      test_middlewares.py          # Unit tests for auth middleware behavior
       order_place.py               # POST /ibkr/order
+      test_order_place.py          # Unit tests for order route
       trades_list.py               # GET /ibkr/trades
+      test_trades_list.py          # Unit tests for trades route
       ws_events.py                 # GET /ibkr/ws/events
+      test_ws_events.py            # Unit tests for WS events route
     tests/e2e/                     # E2E tests (require Docker stack)
       conftest.py                  # httpx fixtures + preflight check
       test_smoke.py
+      test_ws_events.py
     Dockerfile
     requirements.txt
 infra/

@@ -34,7 +34,7 @@ This project (`ibkr_bridge`) and its sibling `relayport` share the same CLI depl
 - **No logging of secrets or sensitive operational data.** Never `log.info()` tokens, passwords, keys, account IDs, IPs, or domains. Log actions and outcomes — counts, symbols, statuses, not full objects.
 - **`.env`, `.env.droplet`, `.env.test`, `*.tfvars` are gitignored.** Use `env_examples/` templates with placeholders.
 - **Terraform state is gitignored** — `terraform.tfstate` contains SSH keys and IPs.
-- **Auth middleware must reject empty `API_TOKEN`.** `hmac.compare_digest("", "")` returns `True`, so empty `API_TOKEN` silently disables auth. Check `if not api_token: return HTTP 500` **before** `compare_digest`. `API_TOKEN` is in `required_env`.
+- **Auth middleware must reject empty `API_TOKEN`.** `hmac.compare_digest("", "")` returns `True`, so empty `API_TOKEN` silently disables auth. Check `if not api_token: return HTTP 500` **before** `compare_digest`. Do not rely on `required_env` here: that validation is CLI/deploy-path specific (for example, standalone deploy), not a universal guarantee across all sync/shared flows.
 
 ## Type Safety (MANDATORY)
 
