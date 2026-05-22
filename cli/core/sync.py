@@ -121,16 +121,12 @@ No follow-up questions, no offers to help further. Stop after the verdict.
 """
 
 
-def _post_deploy_sanity_check(droplet_ip, *, skip_flag):
-    """Best-effort post-deploy sanity check via the local `claude` CLI.
+def run_sanity_check(droplet_ip):
+    """Run the claude sanity check against the droplet.
 
-    Never raises: a missing CLI, network outage, auth failure, rate limit,
-    or hung agent must not turn a successful deploy into a failed command.
+    Best-effort: a missing CLI, network outage, auth failure, rate limit,
+    or hung agent prints a one-line warning and returns — never raises.
     """
-    if skip_flag or os.environ.get("SKIP_POST_DEPLOY_CHECK", "").strip() == "1":
-        print("[sanity-check] skipped (flag set)")
-        return
-
     if not shutil.which("claude"):
         print("[sanity-check] claude CLI not installed — skipping")
         return
@@ -142,7 +138,7 @@ def _post_deploy_sanity_check(droplet_ip, *, skip_flag):
         remote_dir=cfg.remote_dir,
     )
 
-    print("Running post-deploy sanity check (claude agent)...")
+    print("Running sanity check (claude agent)...")
     try:
         result = subprocess.run(
             [
@@ -176,6 +172,14 @@ def _post_deploy_sanity_check(droplet_ip, *, skip_flag):
     print("── Sanity check " + "─" * 44)
     print(output if output else "(claude returned no output)")
     print("─" * 60)
+
+
+def _post_deploy_sanity_check(droplet_ip, *, skip_flag):
+    """Post-deploy hook wrapper. Honors SKIP_POST_DEPLOY_CHECK / --skip-post-check."""
+    if skip_flag or os.environ.get("SKIP_POST_DEPLOY_CHECK", "").strip() == "1":
+        print("[sanity-check] skipped (flag set)")
+        return
+    run_sanity_check(droplet_ip)
 
 
 def run(args):
