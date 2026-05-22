@@ -19,8 +19,8 @@ Any change to `cli/core/deploy.py`, `cli/core/destroy.py`, or `cli/core/sync.py`
 
 Configuration is split into three env files to separate concerns:
 
-- **`.env`** — App-level config + deployment mode + secrets (TWS credentials, API tokens, domains, `DEPLOY_MODE`, `SHARED_NETWORK`). Pushed to the droplet by `make sync` / `make deploy`.
-- **`.env.droplet`** — Developer-machine-only vars never pushed to the droplet (`DROPLET_IP`, `SSH_KEY`, `DROPLET_SIZE`, `DEFAULT_CLI_ENV`). Only read by `cli/` and the Makefile.
+- **`.env`** — Server/runtime config that the bridge container reads: `TWS_USERID`, `TWS_PASSWORD`, `API_TOKEN`, `VNC_SERVER_PASSWORD`, `SITE_DOMAIN`, `VNC_DOMAIN`, `JAVA_HEAP_SIZE`, `TRADING_MODE`, plus `SHARED_NETWORK` when shared-mode (kept here so a manual `docker compose up` on the droplet finds it). **Pushed to the droplet** by `make sync` / `make deploy` via `scp`.
+- **`.env.droplet`** — CLI-only deployment config, **never pushed** to the droplet (excluded from rsync, never `scp`'d). Holds `DEPLOY_MODE`, `DO_API_TOKEN`, `DROPLET_IP`, `SSH_KEY`, `DROPLET_SIZE`, `DEFAULT_CLI_ENV`. Only read by `cli/` and the Makefile. `DEPLOY_MODE` *may* also be set in `.env` (CLI loads both into `os.environ`, see `cli/core/__init__.py::deploy_mode`), but the templated home is `.env.droplet`.
 - **`.env.test`** — E2E test config (paper-account TWS credentials). Used only in `docker-compose.test.yml`.
 
 Templates live in `env_examples/`. `make setup` auto-copies `env_examples/env` → `.env` and `env_examples/env.droplet` → `.env.droplet` if missing. **`.env.test` is intentionally not auto-created** — `make setup` only prints a NOTE; the operator must `cp env_examples/env.test .env.test` and set real paper credentials before running E2E.
@@ -48,18 +48,18 @@ When adding a new service: extend `service_map` (alias + container name), `route
 
 ## Deployment modes
 
-Controlled by `DEPLOY_MODE` in `.env` (required, validated before any deploy or sync).
+Controlled by `DEPLOY_MODE` in `.env.droplet` (required, validated before any deploy or sync). The CLI also accepts `DEPLOY_MODE` in `.env` for backwards compatibility, but the templated home is `.env.droplet`.
 
 ### Standalone Mode (`DEPLOY_MODE=standalone`)
 
-- Set `DO_API_TOKEN` in `.env`. `make deploy` runs Terraform to create a droplet + firewall + reserved IP, then the CLI rsyncs project files, pushes `.env`, and runs `docker compose up -d --build`.
+- Set `DO_API_TOKEN` in `.env.droplet` (CLI-only — never pushed to the droplet). `make deploy` runs Terraform to create a droplet + firewall + reserved IP, then the CLI rsyncs project files, pushes `.env`, and runs `docker compose up -d --build`.
 - Terraform only creates infrastructure — cloud-init installs Docker and creates the project directory. The CLI handles all file transfer and service startup.
 - After deploy, add `DROPLET_IP` from terraform output to `.env.droplet` for `make sync`.
 - `DO_API_TOKEN` can be removed after first deploy for security.
 
 ### Shared Mode (`DEPLOY_MODE=shared`)
 
-- Set `DROPLET_IP`, `SSH_KEY`, and `SHARED_NETWORK` in `.env` (no `DO_API_TOKEN` needed). `SHARED_NETWORK` is **required** — CLI fails fast with a clear error if unset. Putting it in `.env` (rather than `.env.droplet`) means a manual `docker compose up` on the droplet — bypassing the CLI — also finds it.
+- Set `DROPLET_IP` and `SSH_KEY` in `.env.droplet` (CLI-only — never pushed) and `SHARED_NETWORK` in `.env` (no `DO_API_TOKEN` needed). `SHARED_NETWORK` is **required** — CLI fails fast with a clear error if unset. Keeping it in `.env` (rather than `.env.droplet`) means a manual `docker compose up` on the droplet — bypassing the CLI — also finds it via Compose env-file interpolation.
 - `make deploy` rsyncs files, pushes `.env`, ensures the shared Docker network exists on the droplet, and starts services with `docker-compose.shared.yml` + `docker-compose.shared-network.yml` overlays.
 - `docker-compose.shared.yml` disables Caddy (the host project runs it). `docker-compose.shared-network.yml` marks the shared network as `external: true`.
 - Caddy snippet files must be deployed to the host project's Caddy to enable routing.

@@ -196,7 +196,7 @@ Note: `TradeDetail.action` and `TradeDetail.orderType` are `str` (not the constr
 
 ## Deployment modes
 
-Controlled by `DEPLOY_MODE` in `.env`:
+Controlled by `DEPLOY_MODE` in `.env.droplet` (CLI-only; the CLI also accepts it in `.env` for backwards compatibility — see `cli/core/__init__.py::deploy_mode`):
 
 - **Standalone** — Terraform creates a fresh droplet + firewall + reserved IP; CLI rsyncs + pushes `.env` + brings the stack up.
 - **Shared** — multiple projects share a single droplet and one Caddy. Set `SHARED_NETWORK` in `.env`. CLI applies `docker-compose.shared.yml` (disables Caddy) + `docker-compose.shared-network.yml` (joins the external network).
