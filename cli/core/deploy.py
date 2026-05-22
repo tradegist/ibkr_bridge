@@ -22,10 +22,10 @@ from cli.core import (
     ssh_key_path,
     terraform,
 )
-from cli.core.sync import _run_checks, _sync_local_files
+from cli.core.sync import _post_deploy_sanity_check, _run_checks, _sync_local_files
 
 
-def _deploy_standalone():
+def _deploy_standalone(skip_post_check):
     """Deploy via Terraform (own droplet), then rsync files and start services."""
     cfg = config()
 
@@ -115,6 +115,8 @@ def _deploy_standalone():
     if cfg.post_deploy_message:
         print(f"  2. {cfg.post_deploy_message}")
     print()
+
+    _post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
 
 
 def _template_caddy_snippet(src: Path) -> str:
@@ -231,7 +233,7 @@ def _compute_vnc_basic_auth_hash() -> None:
     os.environ["VNC_BASIC_AUTH_HASH"] = result.stdout.strip().split(":", 1)[1]
 
 
-def _deploy_shared():
+def _deploy_shared(skip_post_check):
     """Deploy to an existing shared droplet (no Terraform)."""
 
     cfg = config()
@@ -271,6 +273,8 @@ def _deploy_shared():
     print("=" * 44)
     print()
 
+    _post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
+
 
 def run(args):
     load_env()
@@ -278,6 +282,6 @@ def run(args):
     mode = deploy_mode()
 
     if mode == "standalone":
-        _deploy_standalone()
+        _deploy_standalone(args.skip_post_check)
     else:
-        _deploy_shared()
+        _deploy_shared(args.skip_post_check)
