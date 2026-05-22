@@ -22,7 +22,8 @@ from cli.core import (
     ssh_key_path,
     terraform,
 )
-from cli.core.sync import _post_deploy_sanity_check, _run_checks, _sync_local_files
+from cli.core.sanity_check import post_deploy_sanity_check
+from cli.core.sync import _run_checks, _sync_local_files
 
 
 def _deploy_standalone(skip_post_check):
@@ -116,7 +117,7 @@ def _deploy_standalone(skip_post_check):
         print(f"  2. {cfg.post_deploy_message}")
     print()
 
-    _post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
+    post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
 
 
 def _template_caddy_snippet(src: Path) -> str:
@@ -273,7 +274,7 @@ def _deploy_shared(skip_post_check):
     print("=" * 44)
     print()
 
-    _post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
+    post_deploy_sanity_check(droplet_ip, skip_flag=skip_post_check)
 
 
 def run(args):

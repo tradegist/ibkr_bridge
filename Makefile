@@ -1,4 +1,4 @@
-.PHONY: setup deploy destroy pause resume sync order types test typecheck lint e2e e2e-up e2e-run e2e-down local-up local-down logs stats gateway ssh help
+.PHONY: setup deploy destroy pause resume sync sanity-check-deployment order types test typecheck lint e2e e2e-up e2e-run e2e-down local-up local-down logs stats gateway ssh help
 
 PROJECT = ibkr-bridge
 PYTHON ?= .venv/bin/python3
