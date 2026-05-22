@@ -20,9 +20,8 @@ All secrets are injected via `.env` → `environment:` in `docker-compose.yml`. 
 ## Project file structure
 
 ```
-.env.example                       # Template — copy to .env and fill in real values
-env_examples/                      # Env var templates (make setup copies to .<name>)
-  env                              # → .env (app config)
+env_examples/                      # Env var templates used by setup
+  env                              # → .env (app config; `make setup` copies this file)
   env.droplet                      # → .env.droplet (CLI-only config)
   env.test                         # → .env.test (E2E test config)
 docker-compose.yml                 # All services (ib-gateway, bridge, novnc, caddy, gateway-controller, autoheal)
