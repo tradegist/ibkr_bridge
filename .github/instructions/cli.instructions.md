@@ -40,7 +40,7 @@ Templates live in `env_examples/`. `make setup` auto-copies `env_examples/env` �
 `cli/__init__.py` constructs the `CoreConfig` that `cli/core/*` reads. Current values:
 
 - **`route_prefixes=["/ibkr"]`** — single prefix, no trailing slash. Validation uses `path.startswith(f"{prefix}/")`, so `/ibkr` covers `/ibkr/order`, `/ibkr/trades`, `/ibkr/ws/events`, etc.
-- **`required_env`** — `DO_API_TOKEN`, `TWS_USERID`, `TWS_PASSWORD`, `VNC_SERVER_PASSWORD`, `API_TOKEN`, `VNC_DOMAIN`, `SITE_DOMAIN`. CLI blocks deploy/sync when any required var is missing or empty.
+- **`required_env`** — `DO_API_TOKEN`, `TWS_USERID`, `TWS_PASSWORD`, `VNC_SERVER_PASSWORD`, `API_TOKEN`, `VNC_DOMAIN`, `SITE_DOMAIN`. Currently enforced for standalone deploy when any required var is missing or empty; `sync` and shared deploy do not validate this list.
 - **`service_map`** — maps CLI aliases to compose service names (`{"gateway": "ib-gateway", "ib-gateway": "ib-gateway", "novnc": "novnc", "vnc": "novnc", "caddy": "caddy", "relay": "bridge", "bridge": "bridge", "controller": "gateway-controller", "gateway-controller": "gateway-controller"}`). Used by `make logs S=<alias>`, `make sync S=<alias>`, etc. Aliases are intentional ergonomic shortcuts (e.g. `vnc` → `novnc`, `gateway` → `ib-gateway`).
 - **`terraform_vars`** — maps env var names to Terraform variable names for `TF_VAR_*` export.
 
