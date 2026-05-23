@@ -128,9 +128,13 @@ def _fetch_droplet_state(droplet_ip):
         print(f"[sanity-check] SSH timed out after {_SSH_TIMEOUT_SECONDS}s — verify the droplet manually")
         return None
     except subprocess.CalledProcessError as e:
+        # CalledProcessError fires for *any* non-zero exit — could be SSH
+        # itself (auth, network), or the remote `docker compose` command.
+        # We can't tell which from the exception alone, so report it
+        # generically and include the first stderr line for diagnosis.
         first_err = (e.stderr or "").strip().splitlines()[:1]
         reason = first_err[0] if first_err else f"exit {e.returncode}"
-        print(f"[sanity-check] SSH to droplet failed: {reason}")
+        print(f"[sanity-check] droplet probe failed (SSH or remote `docker compose`): {reason}")
         return None
     except Exception as e:
         print(f"[sanity-check] skipped: {e}")
@@ -146,16 +150,25 @@ def _truncate(text, limit):
 
 
 def _print_verdict(output):
-    """Print claude's output under a banner; warn if it doesn't match the expected verdict shape."""
+    """Print claude's verdict under a banner.
+
+    Enforces the contract: a single line starting with ``[GREEN|YELLOW|RED]``.
+    Multi-line replies are truncated to the first line (with a note), and
+    unprefixed output is reported as malformed so it can't masquerade as a
+    successful verdict.
+    """
     if not output:
         print("[sanity-check] claude returned no output")
         return
-    if not _VERDICT_RE.match(output):
-        first_line = output.splitlines()[0]
+    lines = output.splitlines()
+    first_line = lines[0]
+    if not _VERDICT_RE.match(first_line):
         print(f"[sanity-check] claude returned unexpected format — first line: {first_line}")
         return
     print("── Sanity check " + "─" * 44)
-    print(output)
+    print(first_line)
+    if len(lines) > 1:
+        print(f"[sanity-check] (claude added {len(lines) - 1} extra line(s); truncated to first)")
     print("─" * 60)
 
 
@@ -180,6 +193,8 @@ def run_sanity_check(droplet_ip):
         print("[sanity-check] claude CLI not installed — skipping")
         return
 
+    print("Running sanity check...")
+
     raw_output = _fetch_droplet_state(droplet_ip)
     if raw_output is None:
         return
@@ -196,8 +211,6 @@ def run_sanity_check(droplet_ip):
     prompt = _SUMMARIZE_PROMPT.format(
         droplet_output=_truncate(redacted, _MAX_PROMPT_CHARS),
     )
-
-    print("Running sanity check (claude summarization)...")
     try:
         result = subprocess.run(
             [
