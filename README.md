@@ -448,7 +448,8 @@ All operations are available via `make` or the Python CLI directly. Run `make he
   make pause       Snapshot droplet + delete (save costs)
   make resume      Restore droplet from snapshot
   make setup       Create .venv and install all dependencies
-  make sync        Push .env + restart (S=service B=1 LOCAL_FILES=1 ENV=local)
+  make sync        Push .env + restart (S=service B=1 LOCAL_FILES=1 SKIP_E2E=1 SKIP_POST_CHECK=1 ENV=local)
+  make sanity-check-deployment  Run claude sanity check against the droplet
   make order       Place a stock order (Q=qty SYM=symbol T=type [P=price] ...)
   make types       Regenerate TypeScript types from Pydantic models
   make test        Run unit tests (pytest)
@@ -536,6 +537,18 @@ make sync LOCAL_FILES=1
 ```
 
 This runs a pre-deploy pipeline (branch check → clean tree → typecheck → tests → rsync → rebuild).
+
+## Post-Deploy Sanity Check
+
+After `make sync LOCAL_FILES=1` and `make deploy`, the CLI runs a best-effort sanity check that SSHes into the droplet, captures `docker compose ps` and recent logs (`docker compose logs --since 5m --tail 100` — `--tail` is per service, total capped at 50,000 characters before sending), then pipes the captured text via stdin to the local `claude` CLI for summarization into a one-line `[GREEN|YELLOW|RED]` verdict. Claude runs as a pure text summarizer (no tool access) — SSH/docker invocation happens from Python, so there's no agent-driven shell execution.
+
+The check is best-effort: missing `claude` binary, SSH failure, network/auth/rate-limit errors, or a 60s timeout each produce a one-line warning and never abort the deploy. Opt out via `SKIP_POST_DEPLOY_CHECK=1`, `--skip-post-check`, or `make sync SKIP_POST_CHECK=1` / `make deploy SKIP_POST_CHECK=1`.
+
+Run on demand without syncing — **ignores both opt-outs** since you explicitly invoked it:
+
+```bash
+make sanity-check-deployment
+```
 
 ## Pause & Resume
 

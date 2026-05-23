@@ -17,6 +17,7 @@ from cli.core import (
     ssh_cmd,
     ssh_key_path,
 )
+from cli.core.sanity_check import post_deploy_sanity_check
 
 
 def _test_subprocess_env(cfg: CoreConfig) -> dict[str, str]:
@@ -171,5 +172,8 @@ def run(args):
                 f"cd {cfg.remote_dir} && {compose_env}{net_env}"
                 f"COMPOSE_PROFILES='{profiles}' "
                 f"docker compose {compose_files}up -d {build}--force-recreate {svc_str}")
+
+    if args.local_files:
+        post_deploy_sanity_check(droplet_ip, skip_flag=args.skip_post_check)
 
     print("Done.")
