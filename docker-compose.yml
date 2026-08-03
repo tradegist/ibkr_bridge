@@ -48,7 +48,7 @@ services:
       - "5900"
 
   novnc:
-    image: theasp/novnc@sha256:4b03f7edd1b1bcae314cf4d6612c4ec4ef096847ea28e994c5e61c60035337b4
+    image: theasp/novnc@sha256:6e4f7346150b07983c4bc0d445a6fb227302aed8d00fbfd9cfdf81b07f68851d
     restart: always
     depends_on:
       ib-gateway:
