@@ -58,7 +58,7 @@ For test conventions and the model-layout rule, see `services.instructions.md`. 
   - `replay(from_seq)` returns buffered events with `seq > from_seq`.
 - **Message format**: `WsEnvelope` is a `TypeAlias` discriminated union over `type`:
   - `WsStatusEnvelope` (`type`, `seq`, `timestamp`) for `connected` / `disconnected` (no `source` field).
-  - `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path.
+  - `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path.
 - **Python validation**: consumers validating raw dicts must use `TypeAdapter(WsEnvelope).validate_python(data)` — calling `WsEnvelope.model_validate(...)` will not work because `WsEnvelope` is a TypeAlias, not a class. TypeScript narrowing on `type` gives full type safety on the branches.
 - **Zombie detection**: `WebSocketResponse(heartbeat=WS_HEARTBEAT_INTERVAL)` sends pings; aiohttp auto-closes unresponsive connections. Cleanup runs in `try/finally` to unsubscribe.
 - **Max subscribers**: `WS_MAX_SUBSCRIBERS` (default 10). Exceeding returns WS close code 4029.

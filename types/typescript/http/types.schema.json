@@ -632,6 +632,10 @@
         },
         "source": {
           "$ref": "#/$defs/WsEventSource"
+        },
+        "isBookTrade": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [

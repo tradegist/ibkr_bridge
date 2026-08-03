@@ -372,8 +372,16 @@ class IBClient:
             # would be permanently suppressed and a later reconcile
             # could never retry it.
             try:
+                # A reconciled execution with no CommissionReport is a
+                # book trade (assignment/exercise/expiry): those are not
+                # live executions, so IBKR never generates a report and
+                # ib_async leaves the default report (empty execId). The
+                # RECONCILE_SETTLE_SECONDS delay has already given live
+                # reports time to land, so an empty execId here is a
+                # reliable marker, not a race artifact.
                 self._broadcast_fill(
                     "commissionReportEvent", fill, source="reconciled",
+                    book_trade=not fill.commissionReport.execId,
                 )
             except Exception:
                 log.exception(
@@ -396,6 +404,7 @@ class IBClient:
         *,
         report: CommissionReport | None = None,
         source: WsEventSource,
+        book_trade: bool = False,
     ) -> None:
         ex = fill.execution
         contract = fill.contract
@@ -487,6 +496,7 @@ class IBClient:
             timestamp=datetime.now(UTC).isoformat(),
             fill=ws_fill,
             source=source,
+            isBookTrade=book_trade,
         )
         self.hub.broadcast(envelope.model_dump())
         log.info(
