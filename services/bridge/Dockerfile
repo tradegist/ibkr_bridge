@@ -3,7 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY services/bridge/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore --upgrade pip==26.1.2
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY services/bridge/main.py ./
 COPY services/bridge/bridge_models.py ./
