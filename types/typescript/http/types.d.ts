@@ -143,6 +143,7 @@ export interface WsFillEnvelope {
   timestamp: string;
   fill: WsFill;
   source: WsEventSource;
+  isBookTrade?: boolean;
   [k: string]: unknown;
 }
 /**

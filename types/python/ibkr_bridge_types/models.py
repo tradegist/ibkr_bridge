@@ -295,6 +295,14 @@ class WsFillEnvelope(BaseModel):
     timestamp: str
     fill: WsFill
     source: WsEventSource
+    # True when the bridge surfaced this execution via reconcile and no
+    # CommissionReport ever arrived for it — IBKR books assignments,
+    # exercises, and expiries this way (they are not live executions, so
+    # no commission report is ever generated). Consumers (relayport) use
+    # this to reconcile the fill against the same event arriving via
+    # Flex under different identifiers. Defaults False so the field is
+    # backward-compatible for consumers validating older envelopes.
+    isBookTrade: bool = False
 
 
 # Discriminated union over the ``type`` field. Pydantic uses the

@@ -262,10 +262,14 @@ class TestReconcileBroadcast(unittest.IsolatedAsyncioTestCase):
 
         def selective(
             event_type: Any, fill: Any, *, report: Any = None, source: Any,
+            book_trade: bool = False,
         ) -> None:
             if fill.execution.execId == "BAD":
                 raise RuntimeError("simulated downstream error")
-            original_broadcast(event_type, fill, report=report, source=source)
+            original_broadcast(
+                event_type, fill, report=report, source=source,
+                book_trade=book_trade,
+            )
 
         with patch.object(client, "_broadcast_fill", side_effect=selective), \
              patch("client.RECONCILE_SETTLE_SECONDS", 0):
@@ -293,11 +297,15 @@ class TestReconcileBroadcast(unittest.IsolatedAsyncioTestCase):
 
         def fail_first_call(
             event_type: Any, fill: Any, *, report: Any = None, source: Any,
+            book_trade: bool = False,
         ) -> None:
             if not attempt_failed[0]:
                 attempt_failed[0] = True
                 raise RuntimeError("transient")
-            original_broadcast(event_type, fill, report=report, source=source)
+            original_broadcast(
+                event_type, fill, report=report, source=source,
+                book_trade=book_trade,
+            )
 
         with patch.object(client, "_broadcast_fill", side_effect=fail_first_call), \
              patch("client.RECONCILE_SETTLE_SECONDS", 0):
@@ -528,3 +536,38 @@ class TestExecIdDedup(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReconcileBookTradeTag(unittest.IsolatedAsyncioTestCase):
+    """Reconciled fills without a CommissionReport are tagged isBookTrade."""
+
+    async def test_no_commission_report_tagged_book_trade(self) -> None:
+        # IBKR books assignments/exercises/expiries without a live
+        # execution, so no CommissionReport ever arrives — ib_async
+        # leaves the default report with an empty execId.
+        assignment = _mock_fill(exec_id="ASSIGN1", symbol="TSLA")
+        assignment.commissionReport.execId = ""
+        client = _make_client(req_executions_return=[assignment])
+        client._initial_sync_complete = True
+
+        with patch("client.RECONCILE_SETTLE_SECONDS", 0):
+            client._on_position(MagicMock())
+            await _await_reconcile(client)
+
+        events = client.hub.replay(0)
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0]["isBookTrade"])
+        self.assertEqual(events[0]["source"], "reconciled")
+
+    async def test_fill_with_commission_report_not_tagged(self) -> None:
+        normal = _mock_fill(exec_id="NORMAL1")
+        client = _make_client(req_executions_return=[normal])
+        client._initial_sync_complete = True
+
+        with patch("client.RECONCILE_SETTLE_SECONDS", 0):
+            client._on_position(MagicMock())
+            await _await_reconcile(client)
+
+        events = client.hub.replay(0)
+        self.assertEqual(len(events), 1)
+        self.assertFalse(events[0]["isBookTrade"])

@@ -153,6 +153,7 @@ Events are JSON envelopes wrapping bridge metadata (`type`, `seq`, `timestamp`, 
   "seq": 42,
   "timestamp": "2026-04-11T10:30:00+00:00",
   "source": "live",
+  "isBookTrade": false,
   "fill": {
     "contract": {
       "secType": "STK",
@@ -200,6 +201,8 @@ Each fill event carries a `source` field indicating provenance:
 
 - `"live"` — emitted by ib_async's push callbacks (real-time, same-user fills)
 - `"reconciled"` — emitted by the position-triggered `reqExecutions` path (typically cross-user fills, e.g. orders placed from the mobile app)
+
+Fill events also carry an `isBookTrade` boolean: `true` when the execution was surfaced via reconcile and no CommissionReport ever arrived for it — IBKR books option assignments, exercises, and expiries this way (they are not live executions, so no report is generated). Consumers can use it to reconcile these fills against the same event arriving through other channels (e.g. Flex reports, which identify them differently). `false` for all normal fills.
 
 Status events (`connected` / `disconnected`) carry only `type`, `seq`, and `timestamp` — no `fill` or `source` field. The `WsEnvelope` TypeScript type is a discriminated union over `type`, so consumers narrow with a single `if (env.type === "commissionReportEvent") { ... }` and TypeScript guarantees `env.fill` and `env.source` are present.
 
