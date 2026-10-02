@@ -153,7 +153,7 @@ To surface those fills, `_on_position` schedules `_reconcile_executions`, which 
 Every WS event uses `WsEnvelope` — a discriminated union (TypeAlias) over the `type` field:
 
 - `WsStatusEnvelope` (`type`, `seq`, `timestamp`) for `connected` / `disconnected`. No `source` field.
-- `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path.
+- `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path. `isBookTrade` is `true` for reconciled executions that never received a CommissionReport — IBKR books option assignments, exercises, and expiries this way — and `false` otherwise.
 
 In Python, `WsEnvelope` is a `TypeAlias` (not a class). Consumers validating raw dicts must use `TypeAdapter(WsEnvelope).validate_python(data)` — `WsEnvelope.model_validate(...)` will not work. In TypeScript, narrowing on `type` gives full type safety.
 
@@ -182,7 +182,7 @@ Generated under the `IbkrBridgeHttp` namespace:
 | `FillDetail` | Outbound | Single execution fill within a trade |
 | `WsEnvelope` | Outbound | Discriminated union: `WsStatusEnvelope \| WsFillEnvelope` |
 | `WsStatusEnvelope` | Outbound | Connection status (`type`, `seq`, `timestamp`) |
-| `WsFillEnvelope` | Outbound | Fill event (`type`, `seq`, `timestamp`, `fill`, `source`) |
+| `WsFillEnvelope` | Outbound | Fill event (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) |
 | `WsFill` | Outbound | Fill payload (contract + execution + commissionReport) |
 | `WsContract` | Outbound | Mirrors `ib_async.Contract` (2.1.0) |
 | `WsExecution` | Outbound | Mirrors `ib_async.Execution` (2.1.0) |
