@@ -41,8 +41,7 @@ class TestGracefulShutdown(unittest.IsolatedAsyncioTestCase):
     async def test_sigterm_stops_bridge(self) -> None:
         task = await self._start()
         os.kill(os.getpid(), signal.SIGTERM)
-        async with asyncio.timeout(5):
-            await task
+        await asyncio.wait_for(task, timeout=5)
         self.assertTrue(self.ib_cancelled)
         self.client.shutdown.assert_called_once()
 

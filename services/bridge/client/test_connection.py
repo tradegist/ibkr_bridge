@@ -61,7 +61,7 @@ class TestShutdown(unittest.IsolatedAsyncioTestCase):
         client._background_tasks.add(pending)
         client.shutdown()
         with self.assertRaises(asyncio.CancelledError):
-            await pending
+            await asyncio.wait_for(pending, timeout=1)
 
     async def test_safe_when_never_connected(self) -> None:
         # IB.disconnect() is a no-op (no event) when not connected.

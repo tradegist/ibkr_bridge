@@ -8,6 +8,7 @@ Tests verify:
 """
 
 import asyncio
+import contextlib
 from typing import Any
 
 import aiohttp
@@ -74,14 +75,14 @@ async def _collect(query: str, timeout: float) -> list[dict[str, Any]]:
     """Connect with *query* and collect every message until *timeout* of silence."""
     events: list[dict[str, Any]] = []
     async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}{query}") as ws:
-        try:
+        # *timeout* seconds without a message means the replay is complete —
+        # the expected way out of this loop, not an error.
+        with contextlib.suppress(TimeoutError):
             while True:
                 msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
                 if msg.type != aiohttp.WSMsgType.TEXT:
                     break
                 events.append(msg.json())
-        except TimeoutError:
-            pass
         await ws.close()
     return events
 
@@ -99,7 +100,8 @@ class TestWsReplayRules:
     def test_events_carry_one_bridge_id(self) -> None:
         bridge_ids = {e["bridgeId"] for e in self._buffer()}
         assert len(bridge_ids) == 1
-        assert bridge_ids.pop()
+        (bridge_id,) = bridge_ids
+        assert bridge_id
 
     def test_no_last_seq_means_no_replay(self) -> None:
         self._buffer()  # buffer is non-empty

@@ -202,11 +202,10 @@ class TestDisconnectClosesSyncGate(unittest.IsolatedAsyncioTestCase):
         client = _make_client()
         client._mark_synced()
         client._on_position(MagicMock())  # reconcile now sleeping (settle delay)
-        task = client._reconcile_task
-        assert task is not None
+        self.assertIsNotNone(client._reconcile_task)
         self._disconnect(client)
         with self.assertRaises(asyncio.CancelledError):
-            await task
+            await _await_reconcile(client)
         _ib(client).reqExecutionsAsync.assert_not_awaited()
 
 
