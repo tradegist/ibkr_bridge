@@ -75,7 +75,8 @@ For test conventions and the model-layout rule, see [services/CLAUDE.md](../CLAU
 
 ## Bridge Structure constraints
 
-- **`services/bridge/client/`** owns IB Gateway client logic. `IBClient` is the connection lifecycle manager; `OrdersNamespace` and `TradesNamespace` handle domain logic; `EventHub` manages pub/sub for WS subscribers. Tests are colocated (`test_event_hub.py`, `test_orders.py`, `test_trades.py`, `test_reconcile.py`).
+- **`services/bridge/client/`** owns IB Gateway client logic. `IBClient` is the connection lifecycle manager; `OrdersNamespace` and `TradesNamespace` handle domain logic; `EventHub` manages pub/sub for WS subscribers; `log_redaction.py` masks IBKR account IDs in all log output. Tests are colocated (`test_event_hub.py`, `test_orders.py`, `test_trades.py`, `test_reconcile.py`, `test_log_redaction.py`).
+- **Every log handler must use `AccountRedactingFormatter`.** `main.py` installs it on the only handler. `ib_async` logs whole `Position` / `Trade` / `Fill` objects (INFO and WARNING) whose reprs carry the account, so a handler without it leaks account IDs.
 - **`services/bridge/bridge_routes/`** owns the HTTP/WS API. `constants.py` defines `AUTH_PREFIX`, `client_key`, and `hub_key` — handler modules import these rather than re-declaring them.
 - **`services/bridge/bridge_models.py`** is the single public type surface. Every public Pydantic model and Literal alias used by the HTTP API or WS events lives here. Internal-only helpers do not belong in this file.
 - **WS event models mirror `ib_async` 2.1.0 exactly** — same field names, same nesting (`WsFill.contract`, `WsFill.execution`, `WsFill.commissionReport`). When bumping `ib_async`, update these models to match (see the `bump-ib-async-version` skill).

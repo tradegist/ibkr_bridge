@@ -14,11 +14,17 @@ from aiohttp import web
 from bridge_routes import create_routes
 from client import IBClient, get_trading_mode
 from client.event_hub import EventHub
+from client.log_redaction import AccountRedactingFormatter
 
+# Every record (ours and ib_async's) goes through this handler, whose
+# formatter masks IBKR account IDs before anything reaches the logs.
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(AccountRedactingFormatter(
+    "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S",
+))
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[_log_handler],
 )
 log = logging.getLogger("bridge")
 

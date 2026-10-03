@@ -44,6 +44,7 @@ services/
     client/                        # IB Gateway client package
       __init__.py                  # IBClient (connection, reconnect, watchdog, event wiring, reconcile)
       event_hub.py                 # EventHub (pub/sub + ring buffer for WS replay)
+      log_redaction.py             # Log formatter that masks IBKR account IDs
       orders.py                    # OrdersNamespace (place orders)
       trades.py                    # TradesNamespace (list trades + fills)
     bridge_routes/                 # HTTP + WS API + colocated unit tests
@@ -110,6 +111,7 @@ docs/
 - **`services/bridge/main.py`** — binds the aiohttp HTTP server **before** calling `client.connect()`. The order matters: `/health` is reachable while the Gateway is down or during reconnection. Installs SIGTERM/SIGINT handlers first. On a signal it cancels the IB task, calls `IBClient.shutdown()` (disconnect, no reconnect), then `runner.cleanup()`, whose `on_shutdown` hook closes every WS subscriber with close code 1001. All of this fits inside Docker's 10s stop grace period.
 - **`services/bridge/client/__init__.py`** — `IBClient` owns connection lifecycle (exponential backoff `INITIAL_RETRY_DELAY=10` to `MAX_RETRY_DELAY=300`, auto-reconnect via `disconnectedEvent`, 30-second watchdog, `shutdown()` for process exit) and the `_broadcast_exec_ids: dict[str, datetime]` dedupe map.
 - **`services/bridge/client/event_hub.py`** — pub/sub: ring buffer (`collections.deque`) of last `WS_BUFFER_SIZE` events (default 500), per-subscriber `asyncio.Queue`, `broadcast()` stamps a monotonic `seq` plus the per-process `bridgeId`, `replay(from_seq)` returns events with `seq > from_seq`. `bridge_routes/ws_events.py:select_replay` decides what a connecting client is replayed, based on `last_seq` + `bridge_id` (none without `last_seq`).
+- **`services/bridge/client/log_redaction.py`** — `AccountRedactingFormatter` masks IBKR account IDs in every rendered log line, tracebacks included. `ib_async` logs whole `Position` / `PortfolioItem` / `Trade` / `Fill` objects at INFO and WARNING, and their reprs carry the account. `main.py` installs the formatter on the only log handler; any new handler must use it too.
 - **`services/bridge/client/orders.py`** + **`services/bridge/client/trades.py`** — domain namespaces. Each receives the `ib_async.IB` instance, keeping domain logic isolated from connection management.
 - **`services/bridge/bridge_routes/`** — HTTP API. `constants.py` defines `AUTH_PREFIX = "/ibkr"`, plus `client_key` and `hub_key` (`aiohttp.web.AppKey`) for the shared `IBClient` and `EventHub`. Middleware uses `AUTH_PREFIX` to decide which requests need a Bearer token.
 - **`services/bridge/bridge_models.py`** — single source of truth for all public Pydantic models and `Literal` type aliases (`Action`, `OrderType`, `SecType`, `TimeInForce`, `ExecSide`). Every type listed in `schema_gen.py:SCHEMA_MODELS` is regenerated to TS + Python type packages via `make types`.

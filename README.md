@@ -671,6 +671,7 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │       ├── client/                # IB Gateway client
 │       │   ├── __init__.py        # IBClient (connection, reconnection, watchdog, fill reconcile)
 │       │   ├── event_hub.py       # EventHub (pub/sub broadcast + ring buffer for WS replay)
+│       │   ├── log_redaction.py   # Log formatter that masks IBKR account IDs
 │       │   ├── orders.py          # OrdersNamespace (place orders)
 │       │   └── trades.py          # TradesNamespace (list trades + fills)
 │       ├── bridge_routes/         # HTTP API
