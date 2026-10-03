@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import uuid
 from collections import deque
 
 log = logging.getLogger("event-hub")
@@ -45,6 +46,11 @@ class EventHub:
     stored in a fixed-size ring buffer.  Subscribers receive events via
     an ``asyncio.Queue``.  On reconnect a client can request replay of
     buffered events starting from a given sequence number.
+
+    Sequence numbers restart at 1 in every process, so each hub also
+    carries a random ``bridge_id`` stamped on every event. A client
+    holding a ``seq`` from a different ``bridge_id`` knows the bridge
+    restarted and that its ``seq`` no longer refers to this buffer.
     """
 
     def __init__(
@@ -56,6 +62,7 @@ class EventHub:
         self._max_subscribers = max_subscribers if max_subscribers is not None else get_ws_max_subscribers()
         self._buffer: deque[dict[str, object]] = deque(maxlen=self._buffer_size)
         self._seq: int = 0
+        self._bridge_id: str = uuid.uuid4().hex
         self._subscribers: dict[str, asyncio.Queue[dict[str, object]]] = {}
 
     @property
@@ -66,10 +73,14 @@ class EventHub:
     def seq(self) -> int:
         return self._seq
 
+    @property
+    def bridge_id(self) -> str:
+        return self._bridge_id
+
     def broadcast(self, event: dict[str, object]) -> None:
-        """Assign a sequence number and push to buffer + all subscribers."""
+        """Stamp ``seq`` + ``bridgeId`` and push to buffer + all subscribers."""
         self._seq += 1
-        buffered_event = {**event, "seq": self._seq}
+        buffered_event = {**event, "seq": self._seq, "bridgeId": self._bridge_id}
         self._buffer.append(buffered_event)
         for sub_id, queue in self._subscribers.items():
             try:

@@ -8,6 +8,7 @@ Tests verify:
 """
 
 import asyncio
+import contextlib
 from typing import Any
 
 import aiohttp
@@ -68,6 +69,59 @@ class TestWsAuth:
 
         result = asyncio.run(_run())
         assert result is True
+
+
+async def _collect(query: str, timeout: float) -> list[dict[str, Any]]:
+    """Connect with *query* and collect every message until *timeout* of silence."""
+    events: list[dict[str, Any]] = []
+    async with aiohttp.ClientSession(headers=AUTH_HEADERS) as session, session.ws_connect(f"{WS_URL}{query}") as ws:
+        # *timeout* seconds without a message means the replay is complete —
+        # the expected way out of this loop, not an error.
+        with contextlib.suppress(TimeoutError):
+            while True:
+                msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                if msg.type != aiohttp.WSMsgType.TEXT:
+                    break
+                events.append(msg.json())
+        await ws.close()
+    return events
+
+
+class TestWsReplayRules:
+    """Replay depends on last_seq + bridge_id. These tests need no market:
+    the bridge buffers a ``connected`` status event as soon as it reaches
+    IB Gateway, so the buffer is never empty once the stack is up."""
+
+    def _buffer(self) -> list[dict[str, Any]]:
+        events = asyncio.run(_collect("?last_seq=0", timeout=3))
+        assert events, "Expected at least the startup 'connected' event in the buffer"
+        return events
+
+    def test_events_carry_one_bridge_id(self) -> None:
+        bridge_ids = {e["bridgeId"] for e in self._buffer()}
+        assert len(bridge_ids) == 1
+        (bridge_id,) = bridge_ids
+        assert bridge_id
+
+    def test_no_last_seq_means_no_replay(self) -> None:
+        self._buffer()  # buffer is non-empty
+        assert asyncio.run(_collect("", timeout=2)) == []
+
+    def test_matching_bridge_id_resumes_after_last_seq(self) -> None:
+        buffered = self._buffer()
+        last = buffered[-1]
+        query = f"?last_seq={last['seq']}&bridge_id={last['bridgeId']}"
+        assert asyncio.run(_collect(query, timeout=2)) == []
+
+    def test_foreign_bridge_id_replays_whole_buffer(self) -> None:
+        buffered = self._buffer()
+        replayed = asyncio.run(_collect("?last_seq=999999&bridge_id=previous-process", timeout=3))
+        assert [e["seq"] for e in replayed][: len(buffered)] == [e["seq"] for e in buffered]
+
+    def test_invalid_last_seq_rejected(self) -> None:
+        with pytest.raises(aiohttp.WSServerHandshakeError) as exc_info:
+            asyncio.run(_collect("?last_seq=abc", timeout=1))
+        assert exc_info.value.status == 400
 
 
 class TestWsEventDelivery:

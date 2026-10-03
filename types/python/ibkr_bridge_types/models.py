@@ -278,6 +278,11 @@ class WsStatusEnvelope(BaseModel):
 
     type: Literal["connected", "disconnected"]
     seq: int
+    # Random per-process ID. ``seq`` restarts at 1 whenever the bridge
+    # restarts, so a ``seq`` is only meaningful together with the
+    # ``bridgeId`` that issued it. Consumers persist both and send them
+    # back as ``?last_seq=…&bridge_id=…`` on reconnect.
+    bridgeId: str
     timestamp: str
 
 
@@ -292,6 +297,8 @@ class WsFillEnvelope(BaseModel):
 
     type: Literal["execDetailsEvent", "commissionReportEvent"]
     seq: int
+    # See WsStatusEnvelope.bridgeId.
+    bridgeId: str
     timestamp: str
     fill: WsFill
     source: WsEventSource

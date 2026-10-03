@@ -107,9 +107,9 @@ docs/
 
 ## Bridge service internals
 
-- **`services/bridge/main.py`** — binds the aiohttp HTTP server **before** calling `client.connect()`. The order matters: `/health` is reachable while the Gateway is down or during reconnection.
-- **`services/bridge/client/__init__.py`** — `IBClient` owns connection lifecycle (exponential backoff `INITIAL_RETRY_DELAY=10` to `MAX_RETRY_DELAY=300`, auto-reconnect via `disconnectedEvent`, 30-second watchdog) and the `_broadcast_exec_ids: dict[str, datetime]` dedupe map.
-- **`services/bridge/client/event_hub.py`** — pub/sub: ring buffer (`collections.deque`) of last `WS_BUFFER_SIZE` events (default 500), per-subscriber `asyncio.Queue`, `broadcast()` assigns monotonic `seq`, `replay(from_seq)` returns events with `seq > from_seq`.
+- **`services/bridge/main.py`** — binds the aiohttp HTTP server **before** calling `client.connect()`. The order matters: `/health` is reachable while the Gateway is down or during reconnection. Installs SIGTERM/SIGINT handlers first. On a signal it cancels the IB task, calls `IBClient.shutdown()` (disconnect, no reconnect), then `runner.cleanup()`, whose `on_shutdown` hook closes every WS subscriber with close code 1001. All of this fits inside Docker's 10s stop grace period.
+- **`services/bridge/client/__init__.py`** — `IBClient` owns connection lifecycle (exponential backoff `INITIAL_RETRY_DELAY=10` to `MAX_RETRY_DELAY=300`, auto-reconnect via `disconnectedEvent`, 30-second watchdog, `shutdown()` for process exit) and the `_broadcast_exec_ids: dict[str, datetime]` dedupe map.
+- **`services/bridge/client/event_hub.py`** — pub/sub: ring buffer (`collections.deque`) of last `WS_BUFFER_SIZE` events (default 500), per-subscriber `asyncio.Queue`, `broadcast()` stamps a monotonic `seq` plus the per-process `bridgeId`, `replay(from_seq)` returns events with `seq > from_seq`. `bridge_routes/ws_events.py:select_replay` decides what a connecting client is replayed, based on `last_seq` + `bridge_id` (none without `last_seq`).
 - **`services/bridge/client/orders.py`** + **`services/bridge/client/trades.py`** — domain namespaces. Each receives the `ib_async.IB` instance, keeping domain logic isolated from connection management.
 - **`services/bridge/bridge_routes/`** — HTTP API. `constants.py` defines `AUTH_PREFIX = "/ibkr"`, plus `client_key` and `hub_key` (`aiohttp.web.AppKey`) for the shared `IBClient` and `EventHub`. Middleware uses `AUTH_PREFIX` to decide which requests need a Bearer token.
 - **`services/bridge/bridge_models.py`** — single source of truth for all public Pydantic models and `Literal` type aliases (`Action`, `OrderType`, `SecType`, `TimeInForce`, `ExecSide`). Every type listed in `schema_gen.py:SCHEMA_MODELS` is regenerated to TS + Python type packages via `make types`.
@@ -133,6 +133,7 @@ To surface those fills, `_on_position` schedules `_reconcile_executions`, which 
 
 - **Concurrent positionEvents are coalesced** (single in-flight task).
 - **Initial-sync gate** (`INITIAL_SYNC_GRACE_SECONDS=1.0`, armed by `connectedEvent`) suppresses reconciles during the post-connect position flood. The pending `_mark_synced` timer is tracked on `self._sync_timer` and **cancelled on every reconnect** so a rapid disconnect/reconnect inside the grace window doesn't let a stale timer open the gate during the next connection's position flood.
+- **`on_disconnect` closes the gate** and cancels the pending timer and any in-flight reconcile. `connectAsync` replays positions *before* `connectedEvent` fires, so a gate left open from the previous session would let the reconnect's position flood schedule a reconcile mid-handshake.
 - **Settle delay** (`RECONCILE_SETTLE_SECONDS=1.0`) lets the matching commission report land on the same `Fill` before reading.
 - **Per-fill failure isolation** — each `_broadcast_fill` call is wrapped in its own try/except. An execId is added to `_broadcast_exec_ids` **only after a successful broadcast**, so a fill that raised is eligible for retry on the next reconcile.
 
@@ -152,8 +153,8 @@ To surface those fills, `_on_position` schedules `_reconcile_executions`, which 
 
 Every WS event uses `WsEnvelope` — a discriminated union (TypeAlias) over the `type` field:
 
-- `WsStatusEnvelope` (`type`, `seq`, `timestamp`) for `connected` / `disconnected`. No `source` field.
-- `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path. `isBookTrade` is `true` for reconciled executions that never received a CommissionReport — IBKR books option assignments, exercises, and expiries this way — and `false` otherwise.
+- `WsStatusEnvelope` (`type`, `seq`, `bridgeId`, `timestamp`) for `connected` / `disconnected`. No `source` field.
+- `WsFillEnvelope` (`type`, `seq`, `bridgeId`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path. `isBookTrade` is `true` for reconciled executions that never received a CommissionReport — IBKR books option assignments, exercises, and expiries this way — and `false` otherwise.
 
 In Python, `WsEnvelope` is a `TypeAlias` (not a class). Consumers validating raw dicts must use `TypeAdapter(WsEnvelope).validate_python(data)` — `WsEnvelope.model_validate(...)` will not work. In TypeScript, narrowing on `type` gives full type safety.
 
@@ -181,8 +182,8 @@ Generated under the `IbkrBridgeHttp` namespace:
 | `TradeDetail` | Outbound | Order + status + fills |
 | `FillDetail` | Outbound | Single execution fill within a trade |
 | `WsEnvelope` | Outbound | Discriminated union: `WsStatusEnvelope \| WsFillEnvelope` |
-| `WsStatusEnvelope` | Outbound | Connection status (`type`, `seq`, `timestamp`) |
-| `WsFillEnvelope` | Outbound | Fill event (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) |
+| `WsStatusEnvelope` | Outbound | Connection status (`type`, `seq`, `bridgeId`, `timestamp`) |
+| `WsFillEnvelope` | Outbound | Fill event (`type`, `seq`, `bridgeId`, `timestamp`, `fill`, `source`, `isBookTrade`) |
 | `WsFill` | Outbound | Fill payload (contract + execution + commissionReport) |
 | `WsContract` | Outbound | Mirrors `ib_async.Contract` (2.1.0) |
 | `WsExecution` | Outbound | Mirrors `ib_async.Execution` (2.1.0) |

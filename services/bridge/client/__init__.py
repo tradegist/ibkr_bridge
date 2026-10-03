@@ -90,6 +90,8 @@ class IBClient:
         self._connect_lock = asyncio.Lock()
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._events_subscribed = False
+        # Set by shutdown() so on_disconnect stops scheduling reconnects.
+        self._shutting_down = False
         self._initial_sync_complete = False
         # Handle for the pending ``_mark_synced`` timer. Tracked so a
         # second (re)connect that happens before the first timer fires
@@ -154,13 +156,43 @@ class IBClient:
                     self._retry_delay = min(self._retry_delay * 2, MAX_RETRY_DELAY)
 
     def on_disconnect(self) -> None:
-        log.warning("Disconnected from IB Gateway — will reconnect")
+        # Close the initial-sync gate. On reconnect, ib_async replays
+        # every position (positionEvent) inside connectAsync, *before*
+        # connectedEvent re-arms the gate in _on_connected — left open,
+        # that flood would schedule a reconcile mid-handshake.
+        self._initial_sync_complete = False
+        if self._sync_timer is not None:
+            self._sync_timer.cancel()
+            self._sync_timer = None
+        # An in-flight reconcile cannot complete without a connection
+        # (reqExecutions fails with ConnectionError) — cancel it rather
+        # than let it log a spurious traceback.
+        if self._reconcile_task is not None and not self._reconcile_task.done():
+            self._reconcile_task.cancel()
+
         self._broadcast_status("disconnected")
+        if self._shutting_down:
+            log.info("Disconnected from IB Gateway (shutdown)")
+            return
+        log.warning("Disconnected from IB Gateway — will reconnect")
         # ib_async dispatches disconnectedEvent on the running loop, so
         # get_running_loop().create_task is the deterministic schedule.
         task = asyncio.get_running_loop().create_task(self._reconnect())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    def shutdown(self) -> None:
+        """Disconnect from IB Gateway for good. Called once on process exit.
+
+        ``_shutting_down`` is set first because ``IB.disconnect()`` emits
+        disconnectedEvent synchronously, and ``on_disconnect`` must not
+        schedule a reconnect. Pending reconnects and in-flight
+        reconciles are cancelled: the event loop is about to stop.
+        """
+        self._shutting_down = True
+        for task in list(self._background_tasks):
+            task.cancel()
+        self.ib.disconnect()
 
     async def _reconnect(self) -> None:
         await asyncio.sleep(self._retry_delay)
@@ -196,6 +228,7 @@ class IBClient:
         envelope = WsStatusEnvelope(
             type=status,
             seq=0,  # Overwritten by hub.broadcast
+            bridgeId=self.hub.bridge_id,
             timestamp=datetime.now(UTC).isoformat(),
         )
         self.hub.broadcast(envelope.model_dump())
@@ -493,6 +526,7 @@ class IBClient:
         envelope = WsFillEnvelope(
             type=event_type,
             seq=0,  # Overwritten by hub.broadcast
+            bridgeId=self.hub.bridge_id,
             timestamp=datetime.now(UTC).isoformat(),
             fill=ws_fill,
             source=source,

@@ -128,6 +128,7 @@ export interface FillDetail {
 export interface WsStatusEnvelope {
   type: "connected" | "disconnected";
   seq: number;
+  bridgeId: string;
   timestamp: string;
   [k: string]: unknown;
 }
@@ -140,6 +141,7 @@ export interface WsStatusEnvelope {
 export interface WsFillEnvelope {
   type: "execDetailsEvent" | "commissionReportEvent";
   seq: number;
+  bridgeId: string;
   timestamp: string;
   fill: WsFill;
   source: WsEventSource;

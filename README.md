@@ -141,16 +141,28 @@ GET /ibkr/ws/events
 
 Streams real-time trade execution events over WebSocket. Requires `Authorization: Bearer <API_TOKEN>` (sent as HTTP header during the upgrade handshake).
 
-Query parameters:
+Query parameters (both optional):
 
-- `last_seq` — replay buffered events with `seq >` this value (default: `0`)
+- `last_seq` — highest `seq` the client has already processed. **Omit it to receive live events only** — no replay. Must be a non-negative integer, otherwise the upgrade is rejected with `400`.
+- `bridge_id` — the `bridgeId` of the events that `last_seq` came from.
 
-Events are JSON envelopes wrapping bridge metadata (`type`, `seq`, `timestamp`, and on fill events `source`) around an inner `fill` payload whose nested `contract` / `execution` / `commissionReport` fields mirror `ib_async` 2.1.0 exactly:
+Replay rules:
+
+| `last_seq` | `bridge_id` | Replayed |
+| --- | --- | --- |
+| absent | any | nothing — live events only |
+| `N` | absent, or this bridge's `bridgeId` | buffered events with `seq > N` |
+| `N` | a different `bridgeId` | every buffered event — the bridge restarted since the client's last session and `seq` restarted at 1 |
+
+`seq` restarts at 1 whenever the bridge process restarts, so clients should persist `last_seq` **together with** `bridgeId` and send both when reconnecting.
+
+Events are JSON envelopes wrapping bridge metadata (`type`, `seq`, `bridgeId`, `timestamp`, and on fill events `source`) around an inner `fill` payload whose nested `contract` / `execution` / `commissionReport` fields mirror `ib_async` 2.1.0 exactly:
 
 ```json
 {
   "type": "commissionReportEvent",
   "seq": 42,
+  "bridgeId": "4f1c2b9e8d7a4c3b9a0e1f2d3c4b5a69",
   "timestamp": "2026-04-11T10:30:00+00:00",
   "source": "live",
   "isBookTrade": false,
@@ -204,14 +216,15 @@ Each fill event carries a `source` field indicating provenance:
 
 Fill events also carry an `isBookTrade` boolean: `true` when the execution was surfaced via reconcile and no CommissionReport ever arrived for it — IBKR books option assignments, exercises, and expiries this way (they are not live executions, so no report is generated). Consumers can use it to reconcile these fills against the same event arriving through other channels (e.g. Flex reports, which identify them differently). `false` for all normal fills.
 
-Status events (`connected` / `disconnected`) carry only `type`, `seq`, and `timestamp` — no `fill` or `source` field. The `WsEnvelope` TypeScript type is a discriminated union over `type`, so consumers narrow with a single `if (env.type === "commissionReportEvent") { ... }` and TypeScript guarantees `env.fill` and `env.source` are present.
+Status events (`connected` / `disconnected`) carry only `type`, `seq`, `bridgeId`, and `timestamp` — no `fill` or `source` field. The `WsEnvelope` TypeScript type is a discriminated union over `type`, so consumers narrow with a single `if (env.type === "commissionReportEvent") { ... }` and TypeScript guarantees `env.fill` and `env.source` are present.
 
 Features:
 
 - **Cross-user fill detection** — when a position changes (including from orders placed by another IBKR user on the same account, e.g. from the mobile app), the bridge calls `reqExecutions` and broadcasts each new fill as `commissionReportEvent` with `source: "reconciled"`. This complements the live callbacks, which IB only fires for fills the bridge's own user placed.
 - **Server-side execId dedupe** — the bridge tracks every broadcast `execId` (keyed to its fill timestamp) and emits each fill at most once. Both the live and the reconcile broadcast paths check the dedupe map _before_ emitting, so whichever path wins the race wins — the other drops silently. The map persists across reconnects (a transient connection blip never re-broadcasts today's fills) and is pruned at the start of every reconcile to drop entries older than 2 days — bounding memory to roughly `fills_per_day × 2` entries.
-- **Replay on reconnect** — pass `?last_seq=N` to receive buffered events since that sequence number
+- **Replay on reconnect** — pass `?last_seq=N&bridge_id=…` to receive buffered events the client missed (see the replay rules above)
 - **Ring buffer** — last 500 events buffered server-side (configurable via `WS_BUFFER_SIZE`)
+- **Graceful shutdown** — on `SIGTERM` (e.g. `docker compose stop` / redeploy) the bridge disconnects from IB Gateway, queues a final `disconnected` status event, and closes every subscriber with close code `1001` (Going Away) within a few seconds
 - **Up to 10 simultaneous subscribers** (configurable via `WS_MAX_SUBSCRIBERS`)
 - **Zombie detection** — server sends WebSocket pings every 30s (configurable via `WS_HEARTBEAT_INTERVAL`)
 
