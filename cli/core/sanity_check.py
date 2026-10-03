@@ -30,15 +30,23 @@ _SENSITIVE_KEY_RE = re.compile(
     r"(?i)(token|secret|password|key|auth|webhook|query_id|hash|credential)"
 )
 
-_VERDICT_RE = re.compile(r"^\s*\[(GREEN|YELLOW|RED)\]")
+# Accept the verdict tag with or without brackets, and with or without a
+# following space/colon — claude occasionally drops the brackets it was asked
+# for (the `[GREEN|YELLOW|RED]` prompt notation reads like an alternation
+# placeholder). Bracket-less `GREEN ...` is still a valid verdict; only truly
+# unprefixed output is treated as malformed.
+_VERDICT_RE = re.compile(r"^\s*\[?(GREEN|YELLOW|RED)\]?(?![A-Za-z])")
 _BEARER_RE = re.compile(r"(?i)bearer\s+[A-Za-z0-9_.\-+/=]{8,}")
 _AUTH_HEADER_RE = re.compile(r"(?i)(authorization:\s*)[^\n]+")
 
 _SUMMARIZE_PROMPT = """\
 You are reviewing the output of post-deploy diagnostic commands run on a droplet.
 
-Reply with a single short paragraph in this exact shape:
-[GREEN|YELLOW|RED] <one-line reason>. <one concrete next step if not GREEN>.
+Begin your reply with a status tag that is exactly one of these three literal
+strings, square brackets included: [GREEN] [YELLOW] [RED]
+Then a space, a one-line reason, and (if not GREEN) one concrete next step.
+Keep it to a single short paragraph.
+Example: [GREEN] all containers Up, no errors in logs.
 
 GREEN  = all containers Up, no errors/exceptions/restart loops in logs.
 YELLOW = warnings or one slow startup, but services are still serving.
@@ -185,21 +193,27 @@ def _truncate(text, limit):
 def _print_verdict(output):
     """Print claude's verdict under a banner.
 
-    Enforces the contract: a single line starting with ``[GREEN|YELLOW|RED]``.
-    Multi-line replies are truncated to the first line (with a note), and
-    unprefixed output is reported as malformed so it can't masquerade as a
-    successful verdict.
+    Enforces the contract: a first line whose status tag is ``GREEN``,
+    ``YELLOW`` or ``RED`` — with or without the surrounding brackets, since
+    claude sometimes drops them. The tag is normalised to the bracketed form
+    (``[GREEN]``) for a consistent banner. Multi-line replies are truncated to
+    the first line (with a note), and unprefixed output is reported as malformed
+    so it can't masquerade as a successful verdict.
     """
     if not output:
         print("[sanity-check] claude returned no output")
         return
     lines = output.splitlines()
     first_line = lines[0]
-    if not _VERDICT_RE.match(first_line):
+    match = _VERDICT_RE.match(first_line)
+    if not match:
         print(f"[sanity-check] claude returned unexpected format — first line: {first_line}")
         return
+    # Normalise to the bracketed form so the banner reads the same whether or
+    # not claude included the brackets it was asked for.
+    normalised = f"[{match.group(1)}]" + first_line[match.end():]
     print("── Sanity check " + "─" * 44)
-    print(first_line)
+    print(normalised)
     if len(lines) > 1:
         print(f"[sanity-check] (claude added {len(lines) - 1} extra line(s); truncated to first)")
     print("─" * 60)
