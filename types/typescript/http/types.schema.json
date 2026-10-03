@@ -624,6 +624,9 @@
         "seq": {
           "type": "integer"
         },
+        "bridgeId": {
+          "type": "string"
+        },
         "timestamp": {
           "type": "string"
         },
@@ -641,6 +644,7 @@
       "required": [
         "type",
         "seq",
+        "bridgeId",
         "timestamp",
         "fill",
         "source"
@@ -662,6 +666,9 @@
         "seq": {
           "type": "integer"
         },
+        "bridgeId": {
+          "type": "string"
+        },
         "timestamp": {
           "type": "string"
         }
@@ -669,6 +676,7 @@
       "required": [
         "type",
         "seq",
+        "bridgeId",
         "timestamp"
       ],
       "title": "WsStatusEnvelope",

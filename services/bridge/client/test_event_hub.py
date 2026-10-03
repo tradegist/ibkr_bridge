@@ -101,6 +101,30 @@ class TestEventHubBroadcast(unittest.TestCase):
         self.assertEqual(len(hub.replay(0)), 1)
 
 
+class TestEventHubBridgeId(unittest.TestCase):
+    def test_every_event_carries_the_hub_bridge_id(self) -> None:
+        hub = EventHub(buffer_size=10, max_subscribers=2)
+        q = hub.subscribe("sub-1")
+        hub.broadcast({"type": "connected"})
+        hub.broadcast({"type": "disconnected"})
+        self.assertEqual(
+            [e["bridgeId"] for e in hub.replay(0)], [hub.bridge_id] * 2,
+        )
+        self.assertEqual(q.get_nowait()["bridgeId"], hub.bridge_id)
+
+    def test_hub_overrides_caller_supplied_bridge_id(self) -> None:
+        hub = EventHub(buffer_size=10, max_subscribers=2)
+        hub.broadcast({"type": "connected", "bridgeId": "stale"})
+        self.assertEqual(hub.replay(0)[0]["bridgeId"], hub.bridge_id)
+
+    def test_each_hub_gets_a_distinct_bridge_id(self) -> None:
+        # One hub per process: a restarted bridge must be distinguishable.
+        first = EventHub(buffer_size=10, max_subscribers=2)
+        second = EventHub(buffer_size=10, max_subscribers=2)
+        self.assertNotEqual(first.bridge_id, second.bridge_id)
+        self.assertTrue(first.bridge_id)
+
+
 class TestEventHubSubscribe(unittest.TestCase):
     def test_subscribe_returns_queue(self) -> None:
         hub = EventHub(buffer_size=10, max_subscribers=2)

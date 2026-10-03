@@ -165,6 +165,51 @@ class TestInitialSyncGate(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(client._initial_sync_complete)
 
 
+class TestDisconnectClosesSyncGate(unittest.IsolatedAsyncioTestCase):
+    """on_disconnect must close the gate: ib_async replays every position
+    inside connectAsync, *before* connectedEvent re-arms it."""
+
+    def _disconnect(self, client: IBClient) -> None:
+        # Stub the reconnect so on_disconnect does not leave a real
+        # sleeping task behind.
+        with patch.object(client, "_reconnect", new=AsyncMock()):
+            client.on_disconnect()
+
+    async def test_disconnect_closes_gate(self) -> None:
+        client = _make_client()
+        client._mark_synced()
+        self._disconnect(client)
+        self.assertFalse(client._initial_sync_complete)
+
+    async def test_position_flood_during_reconnect_ignored(self) -> None:
+        client = _make_client()
+        client._mark_synced()
+        self._disconnect(client)
+        # Reconnect handshake: positions arrive before connectedEvent.
+        client._on_position(MagicMock())
+        self.assertIsNone(client._reconcile_task)
+
+    async def test_disconnect_cancels_pending_sync_timer(self) -> None:
+        client = _make_client()
+        with patch.object(asyncio.get_running_loop(), "call_later") as call_later:
+            client._on_connected()
+        timer = call_later.return_value
+        self._disconnect(client)
+        timer.cancel.assert_called_once()
+        self.assertIsNone(client._sync_timer)
+
+    async def test_disconnect_cancels_inflight_reconcile(self) -> None:
+        client = _make_client()
+        client._mark_synced()
+        client._on_position(MagicMock())  # reconcile now sleeping (settle delay)
+        task = client._reconcile_task
+        assert task is not None
+        self._disconnect(client)
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        _ib(client).reqExecutionsAsync.assert_not_awaited()
+
+
 class TestReconcileScheduling(unittest.IsolatedAsyncioTestCase):
     async def test_position_event_schedules_reconcile_when_armed(self) -> None:
         client = _make_client()

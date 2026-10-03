@@ -126,6 +126,9 @@ services:
       context: .
       dockerfile: services/bridge/Dockerfile
     restart: always
+    # Run under an init process so SIGTERM reaches Python even before
+    # main.py has installed its signal handler (graceful shutdown).
+    init: true
     depends_on:
       ib-gateway:
         condition: service_healthy

@@ -18,6 +18,12 @@ For test conventions and the model-layout rule, see [services/CLAUDE.md](../CLAU
 - **Trading mode** is determined by `TRADING_MODE` env var (`paper` or `live`). Paper uses port 4004, live uses port 4003.
 - **Client ID is hardcoded to 1.** Only one `IBClient` instance connects to the Gateway at a time.
 - **Namespace delegation.** Orders and trades are separated into `OrdersNamespace` (`client/orders.py`) and `TradesNamespace` (`client/trades.py`), each receiving the `ib_async.IB` instance. Domain logic is isolated from connection management.
+- **Graceful shutdown on SIGTERM / SIGINT.** `main.py` installs the signal handlers *before* the connect loop (which can retry for minutes while IB Gateway waits for 2FA). On a signal it, in order:
+  1. cancels the `run_ib` task (connect + watchdog);
+  2. calls `IBClient.shutdown()`, which sets `_shutting_down` so `on_disconnect` doesn't schedule a reconnect, cancels the background tasks, and calls `ib.disconnect()`;
+  3. runs `runner.cleanup()`, whose `on_shutdown` hook `close_ws_connections` closes every subscriber with close code 1001.
+
+  `WS_SHUTDOWN_CLOSE_TIMEOUT` (5s) + `HANDLER_SHUTDOWN_TIMEOUT` (3s) keep this under Docker's 10s SIGTERM → SIGKILL grace period. The compose service also sets `init: true` so a SIGTERM that arrives before the handler is installed still reaches Python. Without the handler, Python as PID 1 ignores SIGTERM and gets SIGKILLed 10s later. Subscribers then see an abrupt drop instead of a close frame.
 
 ## Event wiring
 
@@ -30,6 +36,7 @@ For test conventions and the model-layout rule, see [services/CLAUDE.md](../CLAU
 
 - **Concurrent positionEvents are coalesced** — single in-flight task.
 - **Initial-sync gate** (`INITIAL_SYNC_GRACE_SECONDS=1.0`, armed by `connectedEvent`) suppresses reconciles during the post-connect position flood. The pending `_mark_synced` timer is tracked on `self._sync_timer` and **cancelled on every reconnect** so a rapid disconnect/reconnect inside the grace window doesn't let a stale timer open the gate during the next connection's position flood.
+- **`on_disconnect` closes the gate.** `ib_async`'s `connectAsync` requests positions (firing `positionEvent`) *before* it emits `connectedEvent`. A gate left open from the previous session would therefore let the reconnect's position flood schedule a reconcile mid-handshake. `on_disconnect` sets `_initial_sync_complete = False`, cancels the pending `_sync_timer`, and cancels any in-flight `_reconcile_task` (it cannot complete without a connection).
 - **Pre-fetch settle delay** (`RECONCILE_SETTLE_SECONDS=1.0`) lets the matching commission report land on the same `Fill` before reading.
 - **Per-fill failure isolation.** `_reconcile_executions` wraps each `_broadcast_fill` call in its own try/except — a single malformed payload doesn't abort the rest of the batch. **An execId is added to `_broadcast_exec_ids` ONLY after a successful broadcast** so a fill that raised is eligible for retry on the next reconcile. Failures are surfaced via `log.exception` and counted in the per-reconcile INFO summary (`reconcile: N new fill(s) broadcast (M already seen, K failed)`).
 
@@ -50,15 +57,20 @@ For test conventions and the model-layout rule, see [services/CLAUDE.md](../CLAU
 - **`EventHub`** (`client/event_hub.py`) is the pub/sub core:
   - Global ring buffer (`collections.deque`) stores last `WS_BUFFER_SIZE` events (default 500).
   - Each subscriber gets an `asyncio.Queue` for delivery.
-  - `broadcast()` assigns a monotonic `seq`, appends to buffer, and pushes to all subscriber queues.
+  - `broadcast()` stamps a monotonic `seq` and the hub's `bridgeId`, appends to buffer, and pushes to all subscriber queues.
+  - `bridge_id` is a random UUID created once per process. `seq` restarts at 1 on every bridge restart, so a `seq` only means something together with the `bridgeId` that issued it.
   - `replay(from_seq)` returns buffered events with `seq > from_seq`.
 - **Message format**: `WsEnvelope` is a `TypeAlias` discriminated union over `type`:
-  - `WsStatusEnvelope` (`type`, `seq`, `timestamp`) for `connected` / `disconnected` (no `source` field).
-  - `WsFillEnvelope` (`type`, `seq`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path.
+  - `WsStatusEnvelope` (`type`, `seq`, `bridgeId`, `timestamp`) for `connected` / `disconnected` (no `source` field).
+  - `WsFillEnvelope` (`type`, `seq`, `bridgeId`, `timestamp`, `fill`, `source`, `isBookTrade`) for `execDetailsEvent` / `commissionReportEvent`. `source` is `"live"` for push callbacks or `"reconciled"` for the positionEvent → reqExecutions path.
 - **Python validation**: consumers validating raw dicts must use `TypeAdapter(WsEnvelope).validate_python(data)` — calling `WsEnvelope.model_validate(...)` will not work because `WsEnvelope` is a TypeAlias, not a class. TypeScript narrowing on `type` gives full type safety on the branches.
 - **Zombie detection**: `WebSocketResponse(heartbeat=WS_HEARTBEAT_INTERVAL)` sends pings; aiohttp auto-closes unresponsive connections. Cleanup runs in `try/finally` to unsubscribe.
 - **Max subscribers**: `WS_MAX_SUBSCRIBERS` (default 10). Exceeding returns WS close code 4029.
-- **Reconnect replay**: client passes `?last_seq=N` to receive missed events from the ring buffer.
+- **Reconnect replay (MANDATORY rules)**: `select_replay` in `bridge_routes/ws_events.py` decides what a connecting client gets:
+  - No `last_seq` → **nothing**, live events only. Never default a missing `last_seq` to 0. That default once replayed months-old fills to a freshly started consumer, which re-sent them as new webhooks.
+  - `last_seq=N` with a `bridge_id` that differs from this process's → the whole buffer, because the client's `N` came from a previous bridge process.
+  - `last_seq=N` with a matching or absent `bridge_id` → events with `seq > N`.
+  - A non-integer or negative `last_seq` → HTTP 400 before the upgrade.
 - **No new port needed**: WebSocket runs on the same aiohttp server (port 5000). Caddy proxies it transparently — no special upgrade config needed.
 
 ## Bridge Structure constraints
