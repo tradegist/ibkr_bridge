@@ -2,7 +2,12 @@ name: ibkr-bridge
 
 services:
   ib-gateway:
-    image: ghcr.io/gnzsnz/ib-gateway:stable
+    # Pinned to IBKR's *stable* channel (tag + multi-arch index digest — the
+    # upstream re-pushes version tags). Version tags carry no channel, so
+    # before bumping check the version is an `ibgateway-stable@X` release at
+    # github.com/gnzsnz/ib-gateway-docker/releases, not a `latest` one.
+    # Excluded from Dependabot for that reason — bump manually.
+    image: ghcr.io/gnzsnz/ib-gateway:10.50.1e@sha256:e340626b5569d476bb96f891b5435ec9b9da517afd1e03c71e73fc50188477b1
     restart: unless-stopped
     healthcheck:
       # Two-part probe that runs every 15s after a 90s grace period.

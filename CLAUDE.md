@@ -113,7 +113,7 @@ Each image has a different risk profile for Dependabot bumps:
 
 | Image | Risk | When to merge |
 | --- | --- | --- |
-| `ghcr.io/gnzsnz/ib-gateway` | **CRITICAL** | Never auto-merge. Manual review + E2E required. Changes can affect TWS API behaviour, IBC restart logic, 2FA handling, and the VNC RFB-banner health check. Check the upstream changelog against the autorestart file, IBC version, and port config before merging. |
+| `ghcr.io/gnzsnz/ib-gateway` | **CRITICAL** | Excluded from Dependabot — bump manually. Pin tag + digest, and only to `ibgateway-stable@X` releases (version tags carry no channel; `latest`-channel builds share the same tag format). Manual review + E2E required. Changes can affect TWS API behaviour, IBC restart logic, 2FA handling, and the VNC RFB-banner health check. Check the upstream changelog against the autorestart file, IBC version, and port config before merging. |
 | `python:3.11-slim` | **Medium** | Patch bumps within 3.11 are safe. Never bump to a different minor without running `make test`, `make typecheck`, `make e2e`. |
 | `caddy:2-alpine` | **Medium** | Minor/patch within 2.x is generally safe — stable config format. Scan changelog for directive changes. |
 | `theasp/novnc` | **Medium** | SHA digest bumps generally safe. Verify the RFB banner health check still passes. |

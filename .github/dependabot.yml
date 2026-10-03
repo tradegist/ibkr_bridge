@@ -12,6 +12,11 @@ updates:
       docker-compose:
         patterns:
           - "*"
+    ignore:
+      # Bumped manually. Its version tags carry no release channel, so
+      # Dependabot would propose IBKR `latest`-channel builds; we only run
+      # `stable`-channel releases (see the comment in docker-compose.yml).
+      - dependency-name: "ghcr.io/gnzsnz/ib-gateway"
     commit-message:
       prefix: "deps"
     labels:

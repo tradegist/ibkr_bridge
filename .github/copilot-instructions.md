@@ -91,7 +91,7 @@ This project (`ibkr_bridge`) and its sibling `relayport` share the same CLI depl
 
 | Image | Risk | When to merge |
 | --- | --- | --- |
-| `ghcr.io/gnzsnz/ib-gateway` | **CRITICAL** | Never auto-merge. Manual review + E2E required. Check upstream changelog against autorestart file, IBC version, port config. |
+| `ghcr.io/gnzsnz/ib-gateway` | **CRITICAL** | Excluded from Dependabot — bump manually, tag + digest, `ibgateway-stable@X` releases only. Manual review + E2E required. Check upstream changelog against autorestart file, IBC version, port config. |
 | `python:3.11-slim` | **Medium** | Patch within 3.11 safe. Never minor bump without `make test`, `make typecheck`, `make e2e`. |
 | `caddy:2-alpine` | **Medium** | Minor/patch within 2.x generally safe — scan changelog for directive changes. |
 | `theasp/novnc` | **Medium** | SHA digest bumps generally safe. Verify RFB banner health check still passes. |
