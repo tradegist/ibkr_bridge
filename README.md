@@ -705,7 +705,7 @@ Types are auto-generated from the Pydantic models via `make types`. The package 
 │   ├── main.tf                    # Droplet, firewall, reserved IP, SSH key
 │   ├── variables.tf               # Terraform variables
 │   ├── outputs.tf                 # Droplet IP, VNC URL, Site URL, SSH key
-│   └── cloud-init.sh             # Docker install + project directory
+│   └── cloud-init.sh             # Swap file, Docker install + project directory
 ├── schema_gen.py                  # JSON Schema generator (Pydantic → TS types)
 └── types/
     ├── typescript/                # @tradegist/ibkr-bridge-types npm package
