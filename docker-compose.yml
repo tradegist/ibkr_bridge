@@ -40,6 +40,8 @@ services:
       TWS_PASSWORD: ${TWS_PASSWORD:?Set TWS_PASSWORD in .env}
       TRADING_MODE: ${TRADING_MODE:-paper}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:?Set VNC_SERVER_PASSWORD in .env}
+      # Daily IBC restart (HH:MM AM/PM in TIME_ZONE) — also when the weekly
+      # 2FA login happens; see AUTO_RESTART_TIME in env_examples/env.
       AUTO_RESTART_TIME: ${AUTO_RESTART_TIME:-11:30 PM}
       TWOFA_TIMEOUT_ACTION: exit
       RELOGIN_AFTER_TWOFA_TIMEOUT: "no"

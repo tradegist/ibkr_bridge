@@ -36,12 +36,16 @@ API_TOKEN=
 # order timestamps, and fill times reported by the broker.
 TIME_ZONE=America/New_York
 
-# IBC scheduled daily restart time (default: "11:30 PM").
-# IBC restarts IB Gateway at this time each day so it can reconnect before
-# IBKR's nightly ~11:45 PM ET session reset, writing an autorestart file that
-# allows the next start to skip 2FA. Change this if your server runs in a
-# different timezone (set TIME_ZONE accordingly) or if you want a different
-# restart window. Format: "HH:MM AM|PM" in the timezone set by TIME_ZONE.
+# IB Gateway daily restart time (default: "11:30 PM"), "HH:MM AM/PM" in the
+# timezone set by TIME_ZONE. IB Gateway must restart once a day; IBC does it
+# at this time and reuses the current session, so daily restarts need no 2FA.
+# Once a week, though, the first restart after Sunday 01:00 ET needs a full
+# login with a 2FA approval (IBC user guide) — with the default, Sunday
+# 11:30 PM ET. If nobody approves it in time, IB Gateway stays logged out and
+# fills stop reaching the bridge until someone logs in (via noVNC).
+# Pick a time you can approve the 2FA prompt on Sunday, outside the hours you
+# trade (each restart drops the API connection for about a minute).
+# Changing it recreates the ib-gateway container: approve 2FA on deploy.
 # AUTO_RESTART_TIME=11:30 PM
 
 # Bridge service log level (default: INFO)
