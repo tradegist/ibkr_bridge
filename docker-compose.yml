@@ -7,7 +7,7 @@ services:
     # before bumping check the version is an `ibgateway-stable@X` release at
     # github.com/gnzsnz/ib-gateway-docker/releases, not a `latest` one.
     # Excluded from Dependabot for that reason — bump manually.
-    image: ghcr.io/gnzsnz/ib-gateway:10.50.1e@sha256:e340626b5569d476bb96f891b5435ec9b9da517afd1e03c71e73fc50188477b1
+    image: ghcr.io/gnzsnz/ib-gateway:10.51.1d@sha256:1e058a950e9cae7cbea367a751f744ed14312332bfdad2052c0c4f27bdd9b667
     restart: unless-stopped
     healthcheck:
       # Two-part probe that runs every 15s after a 90s grace period.
@@ -55,7 +55,7 @@ services:
       - "5900"
 
   novnc:
-    image: theasp/novnc@sha256:4b03f7edd1b1bcae314cf4d6612c4ec4ef096847ea28e994c5e61c60035337b4
+    image: theasp/novnc@sha256:f2d05e35c8d2550d39bb2e01db36c46f35bf72159666596855e5660c017d847e
     restart: always
     depends_on:
       ib-gateway:
